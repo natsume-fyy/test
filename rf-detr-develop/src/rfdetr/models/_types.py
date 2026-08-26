@@ -61,10 +61,6 @@ class BuilderArgs(Protocol):
     device: str
     resolution: int
     group_detr: int
-    hbs_enabled: bool
-    hbs_foreground_kernel_size: int
-    hbs_foreground_scale: float
-    hbs_reduction: int
     gradient_checkpointing: bool
     positional_encoding_size: int
     ia_bce_loss: bool

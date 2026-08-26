@@ -215,40 +215,6 @@ These parameters apply when training `RFDETRKeypointPreview` on COCO keypoint an
 
 The parameters below are available for fine-grained control over training behaviour. Most users can leave these at their defaults.
 
-### HBS Background Suppression and Foreground Restoration
-
-HBS is an opt-in, detection-only auxiliary training branch that smooths projected backbone features outside
-ground-truth boxes, restores high-frequency detail inside them, and applies the regular DETR criterion to a second
-prediction pass. Foreground detail is the difference between the masked foreground and a local average-filtered copy;
-each feature level learns an independent residual scale. The DINOv2 backbone features are reused, and the branch is
-disabled automatically in evaluation and export, so it adds training compute but no inference latency.
-
-```python
-from rfdetr import RFDETRMedium
-
-model = RFDETRMedium(
-    hbs_enabled=True,
-    hbs_reduction=4,
-    hbs_foreground_scale=0.1,
-    hbs_foreground_kernel_size=3,
-)
-model.train(
-    dataset_dir="path/to/dataset",
-    hbs_loss_coef=1.0,
-)
-```
-
-| Parameter                    | Location          | Type    | Default | Description                                                               |
-| ---------------------------- | ----------------- | ------- | ------- | ------------------------------------------------------------------------- |
-| `hbs_enabled`                | Model constructor | `bool`  | `False` | Build and enable the training-only HBS auxiliary branch.                  |
-| `hbs_reduction`              | Model constructor | `int`   | `4`     | Channel reduction factor inside each HBS denoising block.                 |
-| `hbs_foreground_scale`       | Model constructor | `float` | `0.1`   | Initial value of each level's learnable foreground-detail residual scale. |
-| `hbs_foreground_kernel_size` | Model constructor | `int`   | `3`     | Positive odd kernel size for foreground average filtering.                |
-| `hbs_loss_coef`              | `model.train()`   | `float` | `1.0`   | Weight applied to the complete auxiliary HBS detection loss.              |
-
-HBS currently supports bounding-box detection variants only. It intentionally rejects segmentation and keypoint
-models until task-specific auxiliary objectives are validated.
-
 ### Scheduler and Regularization
 
 | Parameter       | Type    | Default  | Description                                                                                                 |
@@ -291,7 +257,6 @@ Below is a summary table of all training parameters:
 | `lr_encoder`               | float               | 1.5e-4         | Learning rate for the backbone encoder.                                                  |
 | `resolution`               | int                 | Model-specific | Input image size (must be divisible by the selected model's `patch_size * num_windows`). |
 | `weight_decay`             | float               | 1e-4           | L2 regularization coefficient.                                                           |
-| `hbs_loss_coef`            | float               | 1.0            | Weight of the HBS auxiliary detection loss when HBS is enabled on the model.             |
 | `device`                   | str                 | "cuda"         | Training device: cuda, cpu, or mps.                                                      |
 | `use_ema`                  | bool                | True           | Enable Exponential Moving Average of weights.                                            |
 | `gradient_checkpointing`   | bool                | False          | Trade compute for memory during backprop.                                                |

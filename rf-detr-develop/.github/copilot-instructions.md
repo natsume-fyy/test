@@ -94,10 +94,6 @@ from tqdm.auto import tqdm  # NOT from tqdm import tqdm
 
 - **Logging:** Use `logger.debug()` for detailed tensor/shape info (not `logger.info()`)
 - **Segmentation models:** Return `pred_masks` as `torch.Tensor` or dict with keys `['spatial_features', 'query_features', 'bias']`
-- **HBS detection training:** `hbs_enabled` adds a training-only auxiliary branch between projected backbone features
-  and the shared DETR head. It suppresses masked background features and restores foreground high-frequency residuals
-  with per-level learnable scales. It must remain absent from evaluation/export and is currently unsupported for
-  segmentation and keypoint models.
 - **Checkpoint handling:** Always check file existence before operations
 - **License headers:** All Python files require Apache 2.0 header (enforced by pre-commit)
 

@@ -94,16 +94,10 @@ class RFDETRModelModule(LightningModule):
         accelerator = str(train_config.accelerator).lower()
         uses_cuda_accelerator = accelerator in {"auto", "gpu", "cuda"}
         compile_enabled = (
-            model_config.compile
-            and DEVICE == "cuda"
-            and uses_cuda_accelerator
-            and not train_config.multi_scale
-            and not model_config.hbs_enabled
+            model_config.compile and DEVICE == "cuda" and uses_cuda_accelerator and not train_config.multi_scale
         )
         if model_config.compile and train_config.multi_scale:
             logger.info("Disabling torch.compile because multi_scale=True introduces dynamic input shapes.")
-        elif model_config.compile and model_config.hbs_enabled:
-            logger.info("Disabling torch.compile because HBS rasterizes a dynamic number of ground-truth boxes.")
         if compile_enabled:
             # dynamic=True: one compiled graph handles all multi-scale input sizes instead
             # of recompiling per (H, W) pair. suppress_errors=True: if inductor can't
@@ -202,30 +196,14 @@ class RFDETRModelModule(LightningModule):
         samples, targets = batch
         batch_size = len(targets)
         outputs = self.model(samples, targets)
-        hbs_outputs = outputs.get("hbs_outputs")
-        primary_outputs = {key: value for key, value in outputs.items() if key != "hbs_outputs"}
         if self._use_manual_optimization:
-            loss_dict, raw_loss, normalizer = self._compute_train_losses(primary_outputs, targets)
+            loss_dict, raw_loss, normalizer = self._compute_train_losses(outputs, targets)
             loss_for_backward = self._scale_loss_for_accumulation(raw_loss, normalizer)
         else:
-            loss_dict = self.criterion(primary_outputs, targets)
+            loss_dict = self.criterion(outputs, targets)
             loss_for_backward = None
         weight_dict = self.criterion.weight_dict
         loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict if k in weight_dict)
-        if isinstance(hbs_outputs, dict):
-            hbs_loss_dict = self.criterion(hbs_outputs, targets)
-            hbs_loss = sum(hbs_loss_dict[k] * weight_dict[k] for k in hbs_loss_dict if k in weight_dict)
-            loss = loss + self.train_config.hbs_loss_coef * hbs_loss
-            loss_dict.update({f"hbs_{key}": value for key, value in hbs_loss_dict.items()})
-            self.log(
-                "train/hbs_loss",
-                hbs_loss,
-                prog_bar=False,
-                on_step=self.train_config.train_log_on_step,
-                on_epoch=True,
-                sync_dist=bool(self.train_config.train_log_sync_dist),
-                batch_size=batch_size,
-            )
         # Automatic optimization path: divide by accumulate_grad_batches so the accumulated
         # gradient matches a single large batch, matching the legacy engine.  PTL accumulates
         # full-scale gradients by default; dividing here keeps the effective LR identical.

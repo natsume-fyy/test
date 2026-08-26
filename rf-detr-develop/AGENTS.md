@@ -210,11 +210,6 @@ uv run twine check --strict dist/*
 - RFDETR wrappers: `self.model` is the model context returned by `get_model()`
 - Underlying PyTorch module: `self.model.model`
 - Segmentation models return `pred_masks` as `torch.Tensor` or dict with keys `['spatial_features', 'query_features', 'bias']`
-- Detection models may opt into HBS with `ModelConfig.hbs_enabled`. HBS reuses projected backbone features, smooths
-  background locations derived from normalized target boxes, restores masked foreground high-frequency residuals with
-  an independently learned scale per feature level, and runs a second shared DETR-head pass only during training. Keep
-  HBS out of evaluation/export paths so it has zero inference cost. Its auxiliary objective is weighted by
-  `TrainConfig.hbs_loss_coef`.
 
 **Imports:**
 
