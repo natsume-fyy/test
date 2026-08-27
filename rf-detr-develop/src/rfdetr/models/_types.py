@@ -47,6 +47,10 @@ class BuilderArgs(Protocol):
     num_decoder_registers: int
     projector_scale: List[str]
     hidden_dim: int
+    hbs_attention_kernel_size: int
+    hbs_enabled: bool
+    hbs_foreground_scale: float
+    hbs_reduction: int
     patch_size: int
     num_windows: int
     sa_nheads: int

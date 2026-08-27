@@ -733,6 +733,28 @@ class TestTrainingStep:
 
         assert loss.item() == pytest.approx(1.0 + 10.0 + 6.0)
 
+    def test_adds_weighted_hbs_auxiliary_loss(self, tmp_path):
+        """Training must add the HBS prediction pass with its configured coefficient."""
+        module, samples, targets, fake_model, fake_criterion = self._run_step(
+            tmp_path,
+            loss_dict={"loss_ce": torch.tensor(2.0)},
+            weight_dict={"loss_ce": 1.0},
+        )
+        module.train_config.hbs_loss_coef = 0.25
+        fake_model.return_value = {
+            "pred_logits": torch.zeros(1, 1, 1),
+            "hbs_outputs": {"pred_logits": torch.zeros(1, 1, 1)},
+        }
+        fake_criterion.side_effect = [
+            {"loss_ce": torch.tensor(2.0)},
+            {"loss_ce": torch.tensor(4.0)},
+        ]
+
+        loss = module.training_step((samples, targets), batch_idx=0)
+
+        assert loss.item() == pytest.approx(3.0)
+        assert fake_criterion.call_count == 2
+
     def test_loss_backward_uses_box_normalizer_contract(self, tmp_path):
         """Backward loss for keypoint models is scaled by the criterion box normalizer (manual optimization owns
         accumulation), not by Lightning's ``accumulate_grad_batches``."""

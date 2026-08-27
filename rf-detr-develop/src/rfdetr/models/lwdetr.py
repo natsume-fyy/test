@@ -43,6 +43,7 @@ from rfdetr.models.criterion import (  # noqa: F401 — backward compat
     sigmoid_varifocal_loss,
 )
 from rfdetr.models.heads.segmentation import SegmentationHead
+from rfdetr.models.hbs import HBS
 from rfdetr.models.matcher import build_matcher
 from rfdetr.models.math import MLP
 from rfdetr.models.postprocess import PostProcess
@@ -131,6 +132,11 @@ class LWDETR(nn.Module):
         use_grouppose_keypoints=False,
         num_keypoints_per_class: list[int] | None = None,
         grouppose_keypoint_dim_downscale: int = 1,
+        hbs_enabled: bool = False,
+        hbs_reduction: int = 4,
+        hbs_kernel_sizes: list[int] | None = None,
+        hbs_foreground_scale: float = 0.1,
+        hbs_attention_kernel_size: int = 7,
     ):
         """Initializes the model.
 
@@ -143,6 +149,11 @@ class LWDETR(nn.Module):
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
             group_detr: Number of groups to speed detr training. Default is 1.
             lite_refpoint_refine: TODO
+            hbs_enabled: Enable the training-only HBS auxiliary feature branch.
+            hbs_reduction: Bottleneck reduction factor for HBS denoisers.
+            hbs_kernel_sizes: Per-feature-level HBS denoising kernel sizes.
+            hbs_foreground_scale: Maximum high-frequency restoration fraction.
+            hbs_attention_kernel_size: Spatial foreground-attention kernel size.
         """
         super().__init__()
         self.num_queries = num_queries
@@ -159,6 +170,17 @@ class LWDETR(nn.Module):
         self.backbone = backbone
         self.aux_loss = aux_loss
         self.group_detr = group_detr
+        self.hbs = (
+            HBS(
+                channels=hidden_dim,
+                kernel_sizes=hbs_kernel_sizes or [3],
+                reduction=hbs_reduction,
+                foreground_scale=hbs_foreground_scale,
+                attention_kernel_size=hbs_attention_kernel_size,
+            )
+            if hbs_enabled
+            else None
+        )
 
         # iter update
         self.lite_refpoint_refine = lite_refpoint_refine
@@ -463,6 +485,54 @@ class LWDETR(nn.Module):
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         features, poss, cross_attn_features = self.backbone(samples)
+
+        out = self._forward_from_backbone_features(samples, features, poss, cross_attn_features)
+        if self.training and self.hbs is not None and targets is not None:
+            hbs_tensors = self.hbs(
+                [feature.tensors for feature in features],
+                targets,
+                [feature.mask for feature in features],
+            )
+            hbs_features = [
+                NestedTensor(hbs_tensor, feature.mask) for hbs_tensor, feature in zip(hbs_tensors, features)
+            ]
+            hbs_cross_attn_features = None
+            if cross_attn_features is not None:
+                hbs_cross_attn_tensors = self.hbs(
+                    [feature.tensors for feature in cross_attn_features],
+                    targets,
+                    [feature.mask for feature in cross_attn_features],
+                )
+                hbs_cross_attn_features = [
+                    NestedTensor(hbs_tensor, feature.mask)
+                    for hbs_tensor, feature in zip(hbs_cross_attn_tensors, cross_attn_features)
+                ]
+            out["hbs_outputs"] = self._forward_from_backbone_features(
+                samples,
+                hbs_features,
+                poss,
+                hbs_cross_attn_features,
+            )
+        return out
+
+    def _forward_from_backbone_features(
+        self,
+        samples: NestedTensor,
+        features: list[NestedTensor],
+        poss: list[torch.Tensor],
+        cross_attn_features: list[NestedTensor] | None,
+    ) -> dict:
+        """Run the shared RF-DETR head on normal or HBS-transformed features.
+
+        Args:
+            samples: Input image batch and padding mask.
+            features: Projected multi-scale backbone features.
+            poss: Positional encodings aligned with ``features``.
+            cross_attn_features: Optional dual-projector features.
+
+        Returns:
+            Prediction dictionary for one feature branch.
+        """
 
         srcs = []
         masks = []
@@ -826,6 +896,14 @@ def build_model(args: "BuilderArgs"):
         use_grouppose_keypoints=getattr(args, "use_grouppose_keypoints", False),
         num_keypoints_per_class=getattr(args, "num_keypoints_per_class", []),
         grouppose_keypoint_dim_downscale=getattr(args, "grouppose_keypoint_dim_downscale", 1),
+        hbs_enabled=getattr(args, "hbs_enabled", False),
+        hbs_reduction=getattr(args, "hbs_reduction", 4),
+        hbs_foreground_scale=getattr(args, "hbs_foreground_scale", 0.1),
+        hbs_attention_kernel_size=getattr(args, "hbs_attention_kernel_size", 7),
+        hbs_kernel_sizes=[
+            (int(math.log2({"P3": 8, "P4": 16, "P5": 32, "P6": 64}[level])) // 2 * 2) + 1
+            for level in args.projector_scale
+        ],
     )
     return model
 

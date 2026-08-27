@@ -32,6 +32,10 @@ _MC_NAMESPACE_FIELDS = {
     "gradient_checkpointing",
     "group_detr",
     "hidden_dim",
+    "hbs_attention_kernel_size",
+    "hbs_enabled",
+    "hbs_foreground_scale",
+    "hbs_reduction",
     "ia_bce_loss",
     "layer_norm",
     "lite_refpoint_refine",
@@ -74,6 +78,7 @@ _TC_NON_NAMESPACE_FIELDS = {
     "resume",
     "seed",
     "cls_loss_coef",
+    "hbs_loss_coef",
     # Deprecated TC architecture copies — ModelConfig wins.
     "group_detr",
     "ia_bce_loss",

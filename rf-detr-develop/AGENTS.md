@@ -210,6 +210,9 @@ uv run twine check --strict dist/*
 - RFDETR wrappers: `self.model` is the model context returned by `get_model()`
 - Underlying PyTorch module: `self.model.model`
 - Segmentation models return `pred_masks` as `torch.Tensor` or dict with keys `['spatial_features', 'query_features', 'bias']`
+- Detection models may opt into the training-only HBS auxiliary branch with `ModelConfig.hbs_enabled`. The branch
+  returns predictions under `hbs_outputs`, is weighted by `TrainConfig.hbs_loss_coef`, and is skipped in evaluation and
+  export paths.
 
 **Imports:**
 

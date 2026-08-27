@@ -145,6 +145,10 @@ class ModelConfig(BaseConfig):
     mask_downsample_ratio: int = 4
     backbone_lora: bool = False
     freeze_encoder: bool = False
+    hbs_enabled: bool = False
+    hbs_reduction: int = Field(default=4, ge=1)
+    hbs_foreground_scale: float = Field(default=0.1, ge=0.0, le=1.0)
+    hbs_attention_kernel_size: int = Field(default=7, ge=1)
     license: str = "Apache-2.0"
     model_name: Optional[str] = Field(
         default=None,
@@ -174,6 +178,15 @@ class ModelConfig(BaseConfig):
                 DeprecationWarning,
                 stacklevel=2,
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_hbs_configuration(self) -> "ModelConfig":
+        """Validate the detection-only HBS auxiliary architecture."""
+        if self.hbs_enabled and (self.segmentation_head or self.use_grouppose_keypoints):
+            raise ValueError("HBS currently supports detection models only.")
+        if self.hbs_attention_kernel_size % 2 == 0:
+            raise ValueError("hbs_attention_kernel_size must be odd.")
         return self
 
     @model_validator(mode="after")
@@ -667,6 +680,7 @@ class TrainConfig(BaseConfig):
     group_detr: int = 13
     ia_bce_loss: bool = True
     cls_loss_coef: float = 1.0
+    hbs_loss_coef: float = Field(default=1.0, ge=0.0)
     num_select: int = 300
     keypoint_flip_pairs: List[int] = Field(default_factory=list)
     keypoint_l1_loss_coef: float = 0

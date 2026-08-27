@@ -126,9 +126,16 @@ def _probe_step(
 
         with torch.autocast(device_type="cuda", enabled=amp):
             outputs = model(samples, targets)
-            loss_dict = cast(dict[str, torch.Tensor], criterion(outputs, targets))
+            hbs_outputs = outputs.get("hbs_outputs")
+            primary_outputs = {key: value for key, value in outputs.items() if key != "hbs_outputs"}
+            loss_dict = cast(dict[str, torch.Tensor], criterion(primary_outputs, targets))
             weight_dict = cast(dict[str, float], getattr(criterion, "weight_dict"))
             weighted_losses = [loss_dict[name] * weight_dict[name] for name in loss_dict if name in weight_dict]
+            if isinstance(hbs_outputs, dict):
+                hbs_loss_dict = cast(dict[str, torch.Tensor], criterion(hbs_outputs, targets))
+                weighted_losses.extend(
+                    hbs_loss_dict[name] * weight_dict[name] for name in hbs_loss_dict if name in weight_dict
+                )
             if not weighted_losses:
                 raise RuntimeError(
                     "auto-batch probe could not build weighted losses: no overlap between criterion loss_dict and "
