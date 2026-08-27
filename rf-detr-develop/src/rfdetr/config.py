@@ -140,6 +140,10 @@ class ModelConfig(BaseConfig):
     grouppose_keypoint_dim_downscale: int = 1
     dual_projector: bool = False
     dual_projector_kp_only: bool = False
+    use_fbm: bool = False
+    fbm_k_list: List[int] = Field(default_factory=lambda: [2, 4, 8])
+    fbm_lowfreq_att: bool = False
+    fbm_spatial_group: int = Field(default=1, ge=1)
     num_keypoints_per_class: List[int] = Field(default_factory=list)
     num_decoder_registers: int = 0
     mask_downsample_ratio: int = 4
@@ -155,6 +159,23 @@ class ModelConfig(BaseConfig):
             "without inspecting ``pretrain_weights``."
         ),
     )
+
+    @field_validator("fbm_k_list")
+    @classmethod
+    def validate_fbm_k_list(cls, value: List[int]) -> List[int]:
+        """Ensure FBM contains ordered, positive frequency divisors."""
+        if not value or any(item <= 0 for item in value):
+            raise ValueError("fbm_k_list must contain at least one positive integer")
+        if value != sorted(set(value)):
+            raise ValueError("fbm_k_list must contain unique values in ascending order")
+        return value
+
+    @model_validator(mode="after")
+    def validate_fbm_group(self) -> "ModelConfig":
+        """Ensure projected channels can be evenly partitioned into FBM groups."""
+        if self.hidden_dim % self.fbm_spatial_group != 0:
+            raise ValueError("fbm_spatial_group must divide hidden_dim")
+        return self
 
     @model_validator(mode="after")
     def _warn_deprecated_model_config_fields(self) -> "ModelConfig":

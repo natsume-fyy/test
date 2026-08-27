@@ -43,6 +43,10 @@ class BuilderArgs(Protocol):
     grouppose_keypoint_dim_downscale: int
     dual_projector: bool
     dual_projector_kp_only: bool
+    use_fbm: bool
+    fbm_k_list: List[int]
+    fbm_lowfreq_att: bool
+    fbm_spatial_group: int
     num_keypoints_per_class: List[int]
     num_decoder_registers: int
     projector_scale: List[str]

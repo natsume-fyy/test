@@ -210,6 +210,8 @@ uv run twine check --strict dist/*
 - RFDETR wrappers: `self.model` is the model context returned by `get_model()`
 - Underlying PyTorch module: `self.model.model`
 - Segmentation models return `pred_masks` as `torch.Tensor` or dict with keys `['spatial_features', 'query_features', 'bias']`
+- Optional FBM blocks operate on P3/P4/P5 features after `MultiScaleProjector` and before Transformer flattening. They are
+  controlled by the `use_fbm` and `fbm_*` fields on `ModelConfig` and initialize close to the identity mapping.
 
 **Imports:**
 

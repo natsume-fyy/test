@@ -1015,6 +1015,13 @@ class TestPartialLoadDetector:
                 id="intentional_head_keys",
             ),
             pytest.param(
+                SimpleNamespace(
+                    missing_keys=["backbone.0.fbm.levels.0.freq_weight_convs.0.weight"],
+                    unexpected_keys=[],
+                ),
+                id="optional_fbm_keys",
+            ),
+            pytest.param(
                 SimpleNamespace(missing_keys=42, unexpected_keys=[]),
                 id="non_iterable_missing_keys",
             ),

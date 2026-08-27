@@ -19,6 +19,7 @@ import torch.nn.functional as F  # noqa: N812
 
 from rfdetr.models.backbone.base import BackboneBase
 from rfdetr.models.backbone.dinov2 import DinoV2
+from rfdetr.models.backbone.fbm import MultiScaleFrequencyBandModulation
 from rfdetr.models.backbone.projector import MultiScaleProjector
 from rfdetr.utilities.logger import get_logger
 from rfdetr.utilities.tensors import NestedTensor
@@ -52,6 +53,10 @@ class Backbone(BackboneBase):
         num_windows: int = 4,
         positional_encoding_size: int = 0,
         dual_projector: bool = False,
+        use_fbm: bool = False,
+        fbm_k_list: list[int] | None = None,
+        fbm_lowfreq_att: bool = False,
+        fbm_spatial_group: int = 1,
     ):
         super().__init__()
         # an example name here would be "dinov2_base" or "dinov2_registers_windowed_base"
@@ -118,6 +123,17 @@ class Backbone(BackboneBase):
             if dual_projector
             else None
         )
+        self.fbm = (
+            MultiScaleFrequencyBandModulation(
+                out_channels,
+                len(self.projector_scale),
+                k_list=fbm_k_list or (2, 4, 8),
+                lowfreq_att=fbm_lowfreq_att,
+                spatial_group=fbm_spatial_group,
+            )
+            if use_fbm
+            else None
+        )
 
         self._export = False
 
@@ -147,6 +163,8 @@ class Backbone(BackboneBase):
         # (H, W, B, C)
         raw_feats = self.encoder(tensor_list.tensors)
         feats = self.projector(raw_feats)
+        if self.fbm is not None:
+            feats = self.fbm(feats)
         # x: [(B, C, H, W)]
         out = []
         for feat in feats:
@@ -170,6 +188,8 @@ class Backbone(BackboneBase):
     def forward_export(self, tensors: torch.Tensor):
         raw_feats = self.encoder(tensors)
         feats = self.projector(raw_feats)
+        if self.fbm is not None:
+            feats = self.fbm(feats)
         out_feats = []
         out_masks = []
         for feat in feats:

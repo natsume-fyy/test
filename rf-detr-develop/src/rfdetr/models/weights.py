@@ -169,7 +169,7 @@ def _warn_on_partial_load(incompatible: Any, pretrain_weights_path: str) -> None
     except TypeError:
         # Result wasn't iterable (e.g. a MagicMock in unit tests) — quietly skip.
         return
-    missing = _filter_intentional_keys(missing_keys)
+    missing = [key for key in _filter_intentional_keys(missing_keys) if not key.startswith("backbone.0.fbm.")]
     unexpected = _filter_intentional_keys(unexpected_keys)
     if not missing and not unexpected:
         return

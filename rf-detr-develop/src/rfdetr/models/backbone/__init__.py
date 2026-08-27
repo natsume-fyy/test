@@ -82,6 +82,10 @@ def build_backbone(
     num_windows,
     positional_encoding_size,
     dual_projector: bool = False,
+    use_fbm: bool = False,
+    fbm_k_list: list[int] | None = None,
+    fbm_lowfreq_att: bool = False,
+    fbm_spatial_group: int = 1,
 ):
     """
     Useful args:
@@ -113,6 +117,10 @@ def build_backbone(
         num_windows=num_windows,
         positional_encoding_size=positional_encoding_size,
         dual_projector=dual_projector,
+        use_fbm=use_fbm,
+        fbm_k_list=fbm_k_list,
+        fbm_lowfreq_att=fbm_lowfreq_att,
+        fbm_spatial_group=fbm_spatial_group,
     )
 
     model = Joiner(backbone, position_embedding)
