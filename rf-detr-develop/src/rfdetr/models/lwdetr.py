@@ -792,6 +792,10 @@ def build_model(args: "BuilderArgs"):
         num_windows=args.num_windows,
         positional_encoding_size=args.positional_encoding_size,
         dual_projector=args.dual_projector,
+        freq_scale=args.freq_scale,
+        freq_scale_num_filters=args.freq_scale_num_filters,
+        freq_scale_group=args.freq_scale_group,
+        freq_scale_init_scale=args.freq_scale_init_scale,
     )
     if args.encoder_only:
         return backbone[0].encoder, None, None

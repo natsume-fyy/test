@@ -19,6 +19,7 @@ import torch.nn.functional as F  # noqa: N812
 
 from rfdetr.models.backbone.base import BackboneBase
 from rfdetr.models.backbone.dinov2 import DinoV2
+from rfdetr.models.backbone.freq_scale import GroupDynamicScale
 from rfdetr.models.backbone.projector import MultiScaleProjector
 from rfdetr.utilities.logger import get_logger
 from rfdetr.utilities.tensors import NestedTensor
@@ -52,6 +53,10 @@ class Backbone(BackboneBase):
         num_windows: int = 4,
         positional_encoding_size: int = 0,
         dual_projector: bool = False,
+        freq_scale: bool = False,
+        freq_scale_num_filters: int = 4,
+        freq_scale_group: int = 32,
+        freq_scale_init_scale: float = 1e-5,
     ):
         super().__init__()
         # an example name here would be "dinov2_base" or "dinov2_registers_windowed_base"
@@ -107,6 +112,19 @@ class Backbone(BackboneBase):
             layer_norm=layer_norm,
             rms_norm=rms_norm,
         )
+        self.freq_scale = (
+            torch.nn.ModuleList(
+                GroupDynamicScale(
+                    dim=channels,
+                    num_filters=freq_scale_num_filters,
+                    group=freq_scale_group,
+                    init_scale=freq_scale_init_scale,
+                )
+                for channels in self.encoder._out_feature_channels
+            )
+            if freq_scale
+            else None
+        )
         self.cross_attn_projector = (
             MultiScaleProjector(
                 in_channels=self.encoder._out_feature_channels,
@@ -120,6 +138,12 @@ class Backbone(BackboneBase):
         )
 
         self._export = False
+
+    def _apply_freq_scale(self, features: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Add FDAM frequency-dynamic modulation to each encoder feature map."""
+        if self.freq_scale is None:
+            return features
+        return [feature + scale(feature) for feature, scale in zip(features, self.freq_scale)]
 
     def export(self):
         self._export = True
@@ -146,6 +170,7 @@ class Backbone(BackboneBase):
         """"""
         # (H, W, B, C)
         raw_feats = self.encoder(tensor_list.tensors)
+        raw_feats = self._apply_freq_scale(raw_feats)
         feats = self.projector(raw_feats)
         # x: [(B, C, H, W)]
         out = []
@@ -169,6 +194,7 @@ class Backbone(BackboneBase):
 
     def forward_export(self, tensors: torch.Tensor):
         raw_feats = self.encoder(tensors)
+        raw_feats = self._apply_freq_scale(raw_feats)
         feats = self.projector(raw_feats)
         out_feats = []
         out_masks = []

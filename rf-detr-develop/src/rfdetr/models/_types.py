@@ -36,6 +36,10 @@ class BuilderArgs(Protocol):
     dec_layers: int
     freeze_encoder: bool
     backbone_lora: bool
+    freq_scale: bool
+    freq_scale_num_filters: int
+    freq_scale_group: int
+    freq_scale_init_scale: float
     two_stage: bool
     use_grouppose_keypoints: bool
     keypoint_cross_attn: bool

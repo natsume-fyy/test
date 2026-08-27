@@ -210,6 +210,8 @@ uv run twine check --strict dist/*
 - RFDETR wrappers: `self.model` is the model context returned by `get_model()`
 - Underlying PyTorch module: `self.model.model`
 - Segmentation models return `pred_masks` as `torch.Tensor` or dict with keys `['spatial_features', 'query_features', 'bias']`
+- Optional FDAM FreqScale modulation is enabled with `ModelConfig.freq_scale`; it is applied residually to each DINOv2
+  feature map before the multi-scale projector.
 
 **Imports:**
 

@@ -144,6 +144,10 @@ class ModelConfig(BaseConfig):
     num_decoder_registers: int = 0
     mask_downsample_ratio: int = 4
     backbone_lora: bool = False
+    freq_scale: bool = False
+    freq_scale_num_filters: int = Field(default=4, ge=1)
+    freq_scale_group: int = Field(default=32, ge=1)
+    freq_scale_init_scale: float = Field(default=1e-5, ge=0.0)
     freeze_encoder: bool = False
     license: str = "Apache-2.0"
     model_name: Optional[str] = Field(

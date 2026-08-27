@@ -13,8 +13,11 @@ import torch
 from torch import nn
 
 from rfdetr.models.backbone.backbone import Backbone
+from rfdetr.models.backbone.freq_scale import FreqScale, FrequencyDynamicScale, GroupDynamicScale
 from rfdetr.models.position_encoding import build_position_encoding
 from rfdetr.utilities.tensors import NestedTensor
+
+__all__ = ["Backbone", "FreqScale", "FrequencyDynamicScale", "GroupDynamicScale", "Joiner", "build_backbone"]
 
 
 class Joiner(nn.Sequential):
@@ -82,6 +85,10 @@ def build_backbone(
     num_windows,
     positional_encoding_size,
     dual_projector: bool = False,
+    freq_scale: bool = False,
+    freq_scale_num_filters: int = 4,
+    freq_scale_group: int = 32,
+    freq_scale_init_scale: float = 1e-5,
 ):
     """
     Useful args:
@@ -113,6 +120,10 @@ def build_backbone(
         num_windows=num_windows,
         positional_encoding_size=positional_encoding_size,
         dual_projector=dual_projector,
+        freq_scale=freq_scale,
+        freq_scale_num_filters=freq_scale_num_filters,
+        freq_scale_group=freq_scale_group,
+        freq_scale_init_scale=freq_scale_init_scale,
     )
 
     model = Joiner(backbone, position_embedding)
