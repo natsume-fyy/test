@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import inspect
+import random
 from collections.abc import Sequence
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -25,6 +26,7 @@ try:
     import albumentations as alb
 except ImportError:
     alb = None  # type: ignore[assignment]
+import cv2
 import numpy as np
 import PIL
 import torch
@@ -36,6 +38,83 @@ from rfdetr.utilities.box_ops import box_xyxy_to_cxcywh
 from rfdetr.utilities.logger import get_logger
 
 logger = get_logger()
+
+
+class SpectralPerturbation:
+    """Apply DCT-domain spectral perturbation without changing image geometry.
+
+    This is an RF-DETR-native adaptation of the SP transform from Dynamic Causal
+    Refinement. It has no Detectron2 or fvcore dependency and leaves detection
+    targets unchanged because it modifies pixels only.
+
+    Args:
+        probability: Probability of applying the transform to an image.
+        v1_scale: End of the low-frequency transition, relative to the shorter side.
+        v2_scale: Start of the high-frequency transition, relative to the shorter side.
+    """
+
+    def __init__(self, probability: float = 0.5, v1_scale: float = 0.005, v2_scale: float = 0.7) -> None:
+        self.probability = probability
+        self.v1_scale = v1_scale
+        self.v2_scale = v2_scale
+
+    def __call__(
+        self, image: Image.Image, target: Optional[Dict[str, Any]] = None
+    ) -> Tuple[Image.Image, Optional[Dict[str, Any]]]:
+        """Perturb an RGB PIL image and return its unmodified target."""
+        if random.random() >= self.probability:
+            return image, target
+
+        image_array = np.asarray(image.convert("RGB"), dtype=np.uint8)
+        height, width = image_array.shape[:2]
+        if min(height, width) < 2:
+            return image, target
+
+        # OpenCV's DCT is fastest and most portable on even spatial sizes. Padding
+        # and cropping preserves the RF-DETR box geometry, unlike resizing here.
+        pad_height = height % 2
+        pad_width = width % 2
+        if pad_height or pad_width:
+            image_array = cv2.copyMakeBorder(
+                image_array,
+                0,
+                pad_height,
+                0,
+                pad_width,
+                borderType=cv2.BORDER_REFLECT_101,
+            )
+
+        work_height, work_width = image_array.shape[:2]
+        min_side = min(work_height, work_width)
+        v1 = max(1, int(min_side * self.v1_scale))
+        v2 = min(min_side - 1, max(v1 + 1, int(min_side * self.v2_scale)))
+
+        row_indices, column_indices = np.meshgrid(
+            np.arange(work_height, dtype=np.float32),
+            np.arange(work_width, dtype=np.float32),
+            indexing="ij",
+        )
+        frequency = np.maximum(row_indices, column_indices)
+        mask = np.empty((work_height, work_width), dtype=np.float32)
+
+        low = frequency <= v1
+        middle = (frequency > v1) & (frequency <= v2)
+        high = (frequency > v2) & (frequency <= min_side)
+        outside = frequency > min_side
+        mask[low] = 1.0 - frequency[low] / v1 * 0.95
+        mask[middle] = 0.01
+        mask[high] = (frequency[high] - v2) / (min_side - v2) * 0.3
+        mask[outside] = 0.5
+
+        image_float = image_array.astype(np.float32)
+        image_dct = np.stack([cv2.dct(image_float[:, :, channel]) for channel in range(3)], axis=-1)
+        variant = random.randint(0, 9)
+        random_state = np.random.RandomState(variant)
+        channel_scales = 1.0 + random_state.randn(1, 1, 3).astype(np.float32)
+        perturbed_dct = image_dct * ((1.0 - mask[..., None]) + mask[..., None] * channel_scales)
+        output = np.stack([cv2.idct(perturbed_dct[:, :, channel]) for channel in range(3)], axis=-1)
+        output = np.clip(output[:height, :width], 0, 255).astype(np.uint8)
+        return Image.fromarray(output, mode="RGB"), target
 
 
 class Normalize(object):

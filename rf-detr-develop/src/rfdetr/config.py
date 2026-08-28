@@ -704,6 +704,9 @@ class TrainConfig(BaseConfig):
     log_per_class_metrics: bool = True
     aug_config: Optional[Dict[str, Any]] = None
     augmentation_backend: Literal["cpu", "auto", "gpu"] = "cpu"
+    sp_prob: float = Field(default=0.0, ge=0.0, le=1.0)
+    sp_v1_scale: float = Field(default=0.005, gt=0.0, lt=1.0)
+    sp_v2_scale: float = Field(default=0.7, gt=0.0, lt=1.0)
     save_dataset_grids: bool = False
     notes: Optional[Any] = Field(
         default=None,
@@ -779,6 +782,13 @@ class TrainConfig(BaseConfig):
     pin_memory: Optional[bool] = None
     persistent_workers: Optional[bool] = None
     prefetch_factor: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_sp_scales(self) -> "TrainConfig":
+        """Validate the ordering of spectral perturbation frequency cutoffs."""
+        if self.sp_v1_scale >= self.sp_v2_scale:
+            raise ValueError("sp_v1_scale must be smaller than sp_v2_scale.")
+        return self
 
     @field_validator("batch_size", mode="after")
     @classmethod

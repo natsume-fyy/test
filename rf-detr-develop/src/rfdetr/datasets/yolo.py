@@ -689,6 +689,9 @@ def build_roboflow_from_yolo(image_set: str, args: Any, resolution: int) -> Yolo
     patch_size = getattr(args, "patch_size", None)
     num_windows = getattr(args, "num_windows", None)
     aug_config = getattr(args, "aug_config", None)
+    sp_prob = getattr(args, "sp_prob", 0.0)
+    sp_v1_scale = getattr(args, "sp_v1_scale", 0.005)
+    sp_v2_scale = getattr(args, "sp_v2_scale", 0.7)
     resolved_augmentation_backend = _resolve_runtime_augmentation_backend(getattr(args, "augmentation_backend", "cpu"))
     gpu_postprocess = resolved_augmentation_backend != "cpu"
 
@@ -707,6 +710,9 @@ def build_roboflow_from_yolo(image_set: str, args: Any, resolution: int) -> Yolo
                 num_windows=num_windows,
                 aug_config=aug_config,
                 gpu_postprocess=gpu_postprocess,
+                sp_prob=sp_prob,
+                sp_v1_scale=sp_v1_scale,
+                sp_v2_scale=sp_v2_scale,
             ),
             include_masks=include_masks,
         )
@@ -725,6 +731,9 @@ def build_roboflow_from_yolo(image_set: str, args: Any, resolution: int) -> Yolo
                 num_windows=num_windows,
                 aug_config=aug_config,
                 gpu_postprocess=gpu_postprocess,
+                sp_prob=sp_prob,
+                sp_v1_scale=sp_v1_scale,
+                sp_v2_scale=sp_v2_scale,
             ),
             include_masks=include_masks,
         )

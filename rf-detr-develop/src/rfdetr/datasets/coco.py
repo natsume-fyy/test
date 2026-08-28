@@ -27,7 +27,7 @@ from PIL import Image
 from torchvision.transforms.v2 import Compose, ToDtype, ToImage
 
 from rfdetr.datasets.aug_configs import AUG_CONFIG
-from rfdetr.datasets.transforms import AlbumentationsWrapper, Normalize
+from rfdetr.datasets.transforms import AlbumentationsWrapper, Normalize, SpectralPerturbation
 from rfdetr.utilities.logger import get_logger
 
 logger = get_logger()
@@ -510,6 +510,9 @@ def make_coco_transforms(
     aug_config: Optional[Dict[str, Dict[str, Any]]] = None,
     gpu_postprocess: bool = False,
     keypoint_flip_pairs: Optional[List[int]] = None,
+    sp_prob: float = 0.0,
+    sp_v1_scale: float = 0.005,
+    sp_v2_scale: float = 0.7,
 ) -> Compose:
     """Build the standard COCO transform pipeline for a given dataset split.
 
@@ -546,6 +549,9 @@ def make_coco_transforms(
         gpu_postprocess: When ``True``, skip Albumentations augmentation wrappers and
             ``Normalize`` from the CPU pipeline.  The ``RFDETRDataModule`` then applies both augmentation and
             normalization on the GPU in ``on_after_batch_transfer``.  Has no effect on val/test splits.
+        sp_prob: Probability of applying spectral perturbation to each training image.
+        sp_v1_scale: Relative low-frequency cutoff used by spectral perturbation.
+        sp_v2_scale: Relative high-frequency cutoff used by spectral perturbation.
 
     Returns:
         A :class:`torchvision.transforms.v2.Compose` pipeline ready to be passed to :class:`CocoDetection`.
@@ -578,6 +584,8 @@ def make_coco_transforms(
             _build_train_resize_config(scales, square=False, max_size=1333)
         )
         pipeline = [*resize_wrappers]
+        if sp_prob > 0.0:
+            pipeline.append(SpectralPerturbation(sp_prob, sp_v1_scale, sp_v2_scale))
         if not gpu_postprocess:
             aug_wrappers = AlbumentationsWrapper.from_config(
                 resolved_aug_config, keypoint_flip_pairs=keypoint_flip_pairs
@@ -614,6 +622,9 @@ def make_coco_transforms_square_div_64(
     aug_config: Optional[Dict[str, Dict[str, Any]]] = None,
     gpu_postprocess: bool = False,
     keypoint_flip_pairs: Optional[List[int]] = None,
+    sp_prob: float = 0.0,
+    sp_v1_scale: float = 0.005,
+    sp_v2_scale: float = 0.7,
 ) -> Compose:
     """Create COCO transforms with square resizing where the output size is divisible by 64.
 
@@ -646,6 +657,9 @@ def make_coco_transforms_square_div_64(
         gpu_postprocess: When ``True``, skip Albumentations augmentation wrappers and
             ``Normalize`` from the CPU pipeline.  The ``RFDETRDataModule`` then applies both augmentation and
             normalization on the GPU in ``on_after_batch_transfer``.  Has no effect on val/test splits.
+        sp_prob: Probability of applying spectral perturbation to each training image.
+        sp_v1_scale: Relative low-frequency cutoff used by spectral perturbation.
+        sp_v2_scale: Relative high-frequency cutoff used by spectral perturbation.
 
     Returns:
         A ``Compose`` object containing the composed image transforms appropriate for the specified ``image_set``.
@@ -666,6 +680,8 @@ def make_coco_transforms_square_div_64(
         resolved_aug_config = aug_config if aug_config is not None else AUG_CONFIG
         resize_wrappers = AlbumentationsWrapper.from_config(_build_train_resize_config(scales, square=True))
         pipeline = [*resize_wrappers]
+        if sp_prob > 0.0:
+            pipeline.append(SpectralPerturbation(sp_prob, sp_v1_scale, sp_v2_scale))
         if not gpu_postprocess:
             aug_wrappers = AlbumentationsWrapper.from_config(
                 resolved_aug_config, keypoint_flip_pairs=keypoint_flip_pairs
@@ -705,6 +721,9 @@ def build_coco(image_set: str, args: Any, resolution: int) -> CocoDetection:
     include_keypoints = has_keypoints
     num_keypoints_per_class = getattr(args, "num_keypoints_per_class", [])
     aug_config = getattr(args, "aug_config", None)
+    sp_prob = getattr(args, "sp_prob", 0.0)
+    sp_v1_scale = getattr(args, "sp_v1_scale", 0.005)
+    sp_v2_scale = getattr(args, "sp_v2_scale", 0.7)
     keypoint_flip_pairs: list[int] = getattr(args, "keypoint_flip_pairs", []) or []
     augmentation_backend = getattr(args, "augmentation_backend", "cpu")
     resolved_augmentation_backend = _resolve_runtime_augmentation_backend(augmentation_backend)
@@ -731,6 +750,9 @@ def build_coco(image_set: str, args: Any, resolution: int) -> CocoDetection:
                 aug_config=aug_config,
                 gpu_postprocess=gpu_postprocess,
                 keypoint_flip_pairs=keypoint_flip_pairs,
+                sp_prob=sp_prob,
+                sp_v1_scale=sp_v1_scale,
+                sp_v2_scale=sp_v2_scale,
             ),
             include_masks=include_masks,
             include_keypoints=include_keypoints,
@@ -753,6 +775,9 @@ def build_coco(image_set: str, args: Any, resolution: int) -> CocoDetection:
                 aug_config=aug_config,
                 gpu_postprocess=gpu_postprocess,
                 keypoint_flip_pairs=keypoint_flip_pairs,
+                sp_prob=sp_prob,
+                sp_v1_scale=sp_v1_scale,
+                sp_v2_scale=sp_v2_scale,
             ),
             include_masks=include_masks,
             include_keypoints=include_keypoints,
@@ -805,6 +830,9 @@ def build_roboflow_from_coco(image_set: str, args: Any, resolution: int) -> Coco
     num_keypoints_per_class = getattr(args, "num_keypoints_per_class", [])
     keypoint_flip_pairs: list[int] = getattr(args, "keypoint_flip_pairs", []) or []
     aug_config = getattr(args, "aug_config", None)
+    sp_prob = getattr(args, "sp_prob", 0.0)
+    sp_v1_scale = getattr(args, "sp_v1_scale", 0.005)
+    sp_v2_scale = getattr(args, "sp_v2_scale", 0.7)
     resolved_augmentation_backend = _resolve_runtime_augmentation_backend(getattr(args, "augmentation_backend", "cpu"))
     gpu_postprocess = resolved_augmentation_backend != "cpu"
 
@@ -824,6 +852,9 @@ def build_roboflow_from_coco(image_set: str, args: Any, resolution: int) -> Coco
                 aug_config=aug_config,
                 gpu_postprocess=gpu_postprocess,
                 keypoint_flip_pairs=keypoint_flip_pairs,
+                sp_prob=sp_prob,
+                sp_v1_scale=sp_v1_scale,
+                sp_v2_scale=sp_v2_scale,
             ),
             include_masks=include_masks,
             include_keypoints=include_keypoints,
@@ -846,6 +877,9 @@ def build_roboflow_from_coco(image_set: str, args: Any, resolution: int) -> Coco
                 aug_config=aug_config,
                 gpu_postprocess=gpu_postprocess,
                 keypoint_flip_pairs=keypoint_flip_pairs,
+                sp_prob=sp_prob,
+                sp_v1_scale=sp_v1_scale,
+                sp_v2_scale=sp_v2_scale,
             ),
             include_masks=include_masks,
             include_keypoints=include_keypoints,
