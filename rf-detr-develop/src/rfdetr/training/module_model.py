@@ -94,10 +94,16 @@ class RFDETRModelModule(LightningModule):
         accelerator = str(train_config.accelerator).lower()
         uses_cuda_accelerator = accelerator in {"auto", "gpu", "cuda"}
         compile_enabled = (
-            model_config.compile and DEVICE == "cuda" and uses_cuda_accelerator and not train_config.multi_scale
+            model_config.compile
+            and DEVICE == "cuda"
+            and uses_cuda_accelerator
+            and not train_config.multi_scale
+            and not model_config.use_fog_frequency_regulator
         )
         if model_config.compile and train_config.multi_scale:
             logger.info("Disabling torch.compile because multi_scale=True introduces dynamic input shapes.")
+        if model_config.compile and model_config.use_fog_frequency_regulator:
+            logger.info("Disabling torch.compile because fog-aware FFT regulation uses per-image dynamic bands.")
         if compile_enabled:
             # dynamic=True: one compiled graph handles all multi-scale input sizes instead
             # of recompiling per (H, W) pair. suppress_errors=True: if inductor can't
@@ -177,6 +183,28 @@ class RFDETRModelModule(LightningModule):
                 pass  # Not attached to Trainer (unit-test context); nothing to zero.
         self._accumulated_box_normalizer = None
 
+    def _update_fog_frequency_progress(self) -> None:
+        """Synchronize the inner frequency controller with Lightning progress."""
+        if not self.model_config.use_fog_frequency_regulator:
+            return
+
+        inner_model = getattr(self.model, "_orig_mod", self.model)
+        setter = getattr(inner_model, "set_training_progress", None)
+        if not callable(setter):
+            return
+
+        try:
+            trainer = self.trainer
+        except RuntimeError:
+            setter(0.0)
+            return
+        total_steps = trainer.estimated_stepping_batches
+        if isinstance(total_steps, (int, float)) and math.isfinite(total_steps) and total_steps > 0:
+            progress = trainer.global_step / total_steps
+        else:
+            progress = self.current_epoch / max(int(trainer.max_epochs), 1)
+        setter(progress)
+
     def training_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor | dict[str, Any]:
         """Compute loss for one training step and log metrics.
 
@@ -194,6 +222,7 @@ class RFDETRModelModule(LightningModule):
             detached postprocessed predictions for train mAP logging.
         """
         samples, targets = batch
+        self._update_fog_frequency_progress()
         batch_size = len(targets)
         outputs = self.model(samples, targets)
         if self._use_manual_optimization:

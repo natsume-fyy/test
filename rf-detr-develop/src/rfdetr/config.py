@@ -145,6 +145,14 @@ class ModelConfig(BaseConfig):
     mask_downsample_ratio: int = 4
     backbone_lora: bool = False
     freeze_encoder: bool = False
+    use_fog_frequency_regulator: bool = False
+    fog_frequency_probability: float = Field(default=0.8, ge=0.0, le=1.0)
+    fog_frequency_tau1_range: tuple[float, float] = (0.03, 0.18)
+    fog_frequency_tau2_range: tuple[float, float] = (0.60, 0.92)
+    fog_frequency_max_low_strength: float = Field(default=0.35, ge=0.0, le=1.0)
+    fog_frequency_max_high_strength: float = Field(default=0.28, ge=0.0, le=1.0)
+    fog_frequency_warmup_fraction: float = Field(default=0.1, ge=0.0, lt=1.0)
+    fog_frequency_transition_width: float = Field(default=0.02, gt=0.0, le=0.1)
     license: str = "Apache-2.0"
     model_name: Optional[str] = Field(
         default=None,
@@ -155,6 +163,19 @@ class ModelConfig(BaseConfig):
             "without inspecting ``pretrain_weights``."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_fog_frequency_ranges(self) -> "ModelConfig":
+        """Validate ordered, non-overlapping dynamic frequency ranges."""
+        tau1_min, tau1_max = self.fog_frequency_tau1_range
+        tau2_min, tau2_max = self.fog_frequency_tau2_range
+        if not 0.0 <= tau1_min < tau1_max < 1.0:
+            raise ValueError("fog_frequency_tau1_range must satisfy 0 <= min < max < 1")
+        if not 0.0 < tau2_min < tau2_max <= 1.0:
+            raise ValueError("fog_frequency_tau2_range must satisfy 0 < min < max <= 1")
+        if tau1_max >= tau2_min:
+            raise ValueError("fog frequency boundary ranges must not overlap")
+        return self
 
     @model_validator(mode="after")
     def _warn_deprecated_model_config_fields(self) -> "ModelConfig":

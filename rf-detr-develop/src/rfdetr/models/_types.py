@@ -69,6 +69,14 @@ class BuilderArgs(Protocol):
     mask_downsample_ratio: int
     num_queries: int
     num_select: int
+    use_fog_frequency_regulator: bool
+    fog_frequency_probability: float
+    fog_frequency_tau1_range: tuple[float, float]
+    fog_frequency_tau2_range: tuple[float, float]
+    fog_frequency_max_low_strength: float
+    fog_frequency_max_high_strength: float
+    fog_frequency_warmup_fraction: float
+    fog_frequency_transition_width: float
     # --- Legacy / hardcoded defaults (present on Namespace, absent on raw configs) ---
     vit_encoder_num_layers: int
     window_block_indexes: Optional[List[int]]

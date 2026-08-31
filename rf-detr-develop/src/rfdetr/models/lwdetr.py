@@ -42,6 +42,7 @@ from rfdetr.models.criterion import (  # noqa: F401 — backward compat
     sigmoid_focal_loss,
     sigmoid_varifocal_loss,
 )
+from rfdetr.models.fog_frequency import FogAwareFrequencyRegulator
 from rfdetr.models.heads.segmentation import SegmentationHead
 from rfdetr.models.matcher import build_matcher
 from rfdetr.models.math import MLP
@@ -131,6 +132,7 @@ class LWDETR(nn.Module):
         use_grouppose_keypoints=False,
         num_keypoints_per_class: list[int] | None = None,
         grouppose_keypoint_dim_downscale: int = 1,
+        fog_frequency_regulator: FogAwareFrequencyRegulator | None = None,
     ):
         """Initializes the model.
 
@@ -157,6 +159,7 @@ class LWDETR(nn.Module):
         nn.init.constant_(self.refpoint_embed.weight.data, 0)
 
         self.backbone = backbone
+        self.fog_frequency_regulator = fog_frequency_regulator
         self.aux_loss = aux_loss
         self.group_detr = group_detr
 
@@ -220,6 +223,15 @@ class LWDETR(nn.Module):
                 )
 
         self._export = False
+
+    def set_training_progress(self, progress: float) -> None:
+        """Forward normalized training progress to the frequency controller.
+
+        Args:
+            progress: Completed fraction of training in ``[0, 1]``.
+        """
+        if self.fog_frequency_regulator is not None:
+            self.fog_frequency_regulator.set_training_progress(progress)
 
     def reinitialize_detection_head(self, num_classes: int) -> None:
         """Resize the detection classification head to *num_classes* outputs.
@@ -462,6 +474,8 @@ class LWDETR(nn.Module):
         """
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
+        if self.fog_frequency_regulator is not None:
+            samples.tensors = self.fog_frequency_regulator(samples.tensors, samples.mask)
         features, poss, cross_attn_features = self.backbone(samples)
 
         srcs = []
@@ -826,6 +840,20 @@ def build_model(args: "BuilderArgs"):
         use_grouppose_keypoints=getattr(args, "use_grouppose_keypoints", False),
         num_keypoints_per_class=getattr(args, "num_keypoints_per_class", []),
         grouppose_keypoint_dim_downscale=getattr(args, "grouppose_keypoint_dim_downscale", 1),
+        fog_frequency_regulator=(
+            FogAwareFrequencyRegulator(
+                probability=args.fog_frequency_probability,
+                tau1_range=tuple(args.fog_frequency_tau1_range),
+                tau2_range=tuple(args.fog_frequency_tau2_range),
+                max_low_strength=args.fog_frequency_max_low_strength,
+                max_high_strength=args.fog_frequency_max_high_strength,
+                warmup_fraction=args.fog_frequency_warmup_fraction,
+                transition_width=args.fog_frequency_transition_width,
+                normalized_input=True,
+            )
+            if getattr(args, "use_fog_frequency_regulator", False)
+            else None
+        ),
     )
     return model
 
