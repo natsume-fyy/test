@@ -47,6 +47,21 @@ def test_dense_fog_narrows_protected_mid_band_and_increases_strength() -> None:
     assert fog_params["high_strength"].item() > clear_params["high_strength"].item()
 
 
+def test_training_progress_ramps_strength_without_moving_image_driven_boundaries() -> None:
+    """The curriculum should ramp perturbation while keeping image-derived bands stable."""
+    regulator = FogAwareFrequencyRegulator(probability=1.0)
+    dense_fog = torch.full((1, 3, 64, 64), 0.82)
+    regulator.set_training_progress(0.0)
+    early = regulator.estimate_parameters(dense_fog)
+    regulator.set_training_progress(1.0)
+    late = regulator.estimate_parameters(dense_fog)
+
+    assert torch.equal(early["tau1"], late["tau1"])
+    assert torch.equal(early["tau2"], late["tau2"])
+    assert late["low_strength"].item() > early["low_strength"].item()
+    assert late["high_strength"].item() > early["high_strength"].item()
+
+
 def test_regulator_only_changes_valid_training_pixels() -> None:
     """The regulator must preserve shape, dtype, padding, and evaluation inputs."""
     regulator = FogAwareFrequencyRegulator(probability=1.0)

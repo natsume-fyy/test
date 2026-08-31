@@ -65,7 +65,7 @@ class FogAwareFrequencyRegulator(nn.Module):
         self.normalized_input = normalized_input
         self.register_buffer("image_mean", torch.tensor(image_mean).view(1, -1, 1, 1), persistent=False)
         self.register_buffer("image_std", torch.tensor(image_std).view(1, -1, 1, 1), persistent=False)
-        self.register_buffer("training_progress", torch.tensor(0.0), persistent=True)
+        self.register_buffer("training_progress", torch.tensor(0.0), persistent=False)
         self.last_statistics: dict[str, torch.Tensor] = {}
 
     def set_training_progress(self, progress: float) -> None:
@@ -79,8 +79,8 @@ class FogAwareFrequencyRegulator(nn.Module):
     @staticmethod
     def _radial_grid(height: int, width: int, device: torch.device) -> torch.Tensor:
         """Return an FFT-shifted radial coordinate grid normalized to ``[0, 1]``."""
-        yy = torch.linspace(-1.0, 1.0, height, device=device)
-        xx = torch.linspace(-1.0, 1.0, width, device=device)
+        yy = (torch.arange(height, device=device) - height // 2) / max(height // 2, 1)
+        xx = (torch.arange(width, device=device) - width // 2) / max(width // 2, 1)
         grid_y, grid_x = torch.meshgrid(yy, xx, indexing="ij")
         return torch.sqrt(grid_x.square() + grid_y.square()).clamp_max(1.0)
 
@@ -91,7 +91,11 @@ class FogAwareFrequencyRegulator(nn.Module):
         count = expanded_valid.sum(dim=(1, 2, 3)).clamp_min(1)
         return (values * expanded_valid).sum(dim=(1, 2, 3)) / count
 
-    def _fill_padding(self, images: torch.Tensor, padding_mask: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor]:
+    def _fill_padding(
+        self,
+        images: torch.Tensor,
+        padding_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Fill padded pixels with the valid channel mean before spectral analysis."""
         if padding_mask is None:
             valid = torch.ones(

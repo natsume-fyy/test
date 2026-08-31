@@ -202,8 +202,30 @@ class RFDETRModelModule(LightningModule):
         if isinstance(total_steps, (int, float)) and math.isfinite(total_steps) and total_steps > 0:
             progress = trainer.global_step / total_steps
         else:
-            progress = self.current_epoch / max(int(trainer.max_epochs), 1)
+            max_epochs = getattr(trainer, "max_epochs", 1) or 1
+            progress = self.current_epoch / max(int(max_epochs), 1)
         setter(progress)
+
+    def _log_fog_frequency_statistics(self, batch_size: int) -> None:
+        """Log the controller's adaptive decisions for training diagnostics.
+
+        Args:
+            batch_size: Number of images represented by the statistics.
+        """
+        if not self.model_config.use_fog_frequency_regulator:
+            return
+        inner_model = getattr(self.model, "_orig_mod", self.model)
+        regulator = getattr(inner_model, "fog_frequency_regulator", None)
+        statistics = getattr(regulator, "last_statistics", None)
+        if not statistics:
+            return
+        self.log_dict(
+            {f"train/fog_frequency/{key}": value for key, value in statistics.items()},
+            on_step=True,
+            on_epoch=True,
+            sync_dist=bool(self.train_config.train_log_sync_dist),
+            batch_size=batch_size,
+        )
 
     def training_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor | dict[str, Any]:
         """Compute loss for one training step and log metrics.
@@ -225,6 +247,7 @@ class RFDETRModelModule(LightningModule):
         self._update_fog_frequency_progress()
         batch_size = len(targets)
         outputs = self.model(samples, targets)
+        self._log_fog_frequency_statistics(batch_size)
         if self._use_manual_optimization:
             loss_dict, raw_loss, normalizer = self._compute_train_losses(outputs, targets)
             loss_for_backward = self._scale_loss_for_accumulation(raw_loss, normalizer)

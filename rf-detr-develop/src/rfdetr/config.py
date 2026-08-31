@@ -175,6 +175,8 @@ class ModelConfig(BaseConfig):
             raise ValueError("fog_frequency_tau2_range must satisfy 0 < min < max <= 1")
         if tau1_max >= tau2_min:
             raise ValueError("fog frequency boundary ranges must not overlap")
+        if self.use_fog_frequency_regulator and self.num_channels != 3:
+            raise ValueError("fog-aware frequency regulation currently requires num_channels=3")
         return self
 
     @model_validator(mode="after")
