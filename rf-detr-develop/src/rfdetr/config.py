@@ -140,6 +140,7 @@ class ModelConfig(BaseConfig):
     grouppose_keypoint_dim_downscale: int = 1
     dual_projector: bool = False
     dual_projector_kp_only: bool = False
+    use_spc: bool = False
     num_keypoints_per_class: List[int] = Field(default_factory=list)
     num_decoder_registers: int = 0
     mask_downsample_ratio: int = 4
@@ -683,6 +684,14 @@ class TrainConfig(BaseConfig):
     do_random_resize_via_padding: bool = False
     use_ema: bool = True
     ema_update_interval: int = 1
+    spc_start_epoch: int = Field(default=0, ge=0)
+    spc_feature_levels: List[int] = Field(default_factory=lambda: [-2, -1])
+    spc_feature_loss_coef: float = Field(default=1.0, ge=0.0)
+    spc_query_class_loss_coef: float = Field(default=1.0, ge=0.0)
+    spc_query_bbox_loss_coef: float = Field(default=2.0, ge=0.0)
+    spc_confidence_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+    spc_max_queries: int = Field(default=100, ge=1)
+    spc_strong_augmentation_strength: float = Field(default=0.7, ge=0.0, le=1.0)
     num_workers: int = 2
     weight_decay: float = 1e-4
     early_stopping: bool = False

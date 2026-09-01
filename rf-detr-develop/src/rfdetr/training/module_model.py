@@ -22,6 +22,7 @@ from rfdetr.datasets.coco import compute_multi_scale_scales
 from rfdetr.models.lwdetr import build_criterion_from_config, build_model_from_config
 from rfdetr.models.weights import apply_lora, interpolate_position_embeddings, load_pretrain_weights
 from rfdetr.training.param_groups import get_param_dict
+from rfdetr.training.spc import SPCConsistency, make_strong_view
 from rfdetr.utilities.logger import get_logger
 
 logger = get_logger()
@@ -84,6 +85,19 @@ class RFDETRModelModule(LightningModule):
         # Build criterion/postprocessors after potential num_classes alignment so
         # they are constructed with a config that matches the current model head.
         self.criterion, self.postprocess = build_criterion_from_config(self.model_config, self.train_config)
+
+        self.spc_consistency: SPCConsistency | None = None
+        if model_config.use_spc:
+            if not train_config.use_ema:
+                raise ValueError("use_spc=True requires use_ema=True so an EMA Teacher is available.")
+            if model_config.segmentation_head or model_config.use_grouppose_keypoints:
+                raise ValueError("SPC currently supports RF-DETR detection models only.")
+            if not train_config.spc_feature_levels:
+                raise ValueError("spc_feature_levels must contain at least one feature level.")
+            self.spc_consistency = SPCConsistency(
+                confidence_threshold=train_config.spc_confidence_threshold,
+                max_queries=train_config.spc_max_queries,
+            )
 
         # torch.compile is opt-in: set model_config.compile=True to enable.
         # Only enabled on CUDA; MPS and CPU do not benefit from compilation.
@@ -195,7 +209,19 @@ class RFDETRModelModule(LightningModule):
         """
         samples, targets = batch
         batch_size = len(targets)
-        outputs = self.model(samples, targets)
+        spc_losses: dict[str, torch.Tensor] = {}
+        if self._spc_is_active():
+            strong_samples = make_strong_view(
+                samples,
+                strength=self.train_config.spc_strong_augmentation_strength,
+            )
+            outputs = self.model(strong_samples, targets, return_spc_outputs=True)
+            teacher_model = self._get_ema_teacher_model()
+            with torch.no_grad():
+                teacher_outputs = teacher_model(samples, return_spc_outputs=True)
+            spc_losses = self._compute_spc_losses(outputs, teacher_outputs)
+        else:
+            outputs = self.model(samples, targets)
         if self._use_manual_optimization:
             loss_dict, raw_loss, normalizer = self._compute_train_losses(outputs, targets)
             loss_for_backward = self._scale_loss_for_accumulation(raw_loss, normalizer)
@@ -204,6 +230,13 @@ class RFDETRModelModule(LightningModule):
             loss_for_backward = None
         weight_dict = self.criterion.weight_dict
         loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict if k in weight_dict)
+        if spc_losses:
+            loss_dict.update(spc_losses)
+            loss = loss + (
+                spc_losses["loss_spc_feature"] * self.train_config.spc_feature_loss_coef
+                + spc_losses["loss_spc_query_cls"] * self.train_config.spc_query_class_loss_coef
+                + spc_losses["loss_spc_query_bbox"] * self.train_config.spc_query_bbox_loss_coef
+            )
         # Automatic optimization path: divide by accumulate_grad_batches so the accumulated
         # gradient matches a single large batch, matching the legacy engine.  PTL accumulates
         # full-scale gradients by default; dividing here keeps the effective LR identical.
@@ -270,6 +303,70 @@ class RFDETRModelModule(LightningModule):
                 "targets": targets,
             }
         return loss_for_return.detach() if self._use_manual_optimization else loss_for_return
+
+    def _spc_is_active(self) -> bool:
+        """Return whether SPC losses should run in the current epoch."""
+        return self.spc_consistency is not None and self.current_epoch >= self.train_config.spc_start_epoch
+
+    def _get_ema_teacher_model(self) -> torch.nn.Module:
+        """Return the detector inside the EMA callback's averaged Lightning module.
+
+        Returns:
+            EMA Teacher detector.
+
+        Raises:
+            RuntimeError: If the EMA callback has not initialized its averaged model.
+        """
+        for callback in self.trainer.callbacks:
+            average_model = getattr(callback, "_average_model", None)
+            averaged_module = getattr(average_model, "module", None)
+            teacher_model = getattr(averaged_module, "model", None)
+            if teacher_model is not None:
+                teacher_model.eval()
+                return teacher_model
+        raise RuntimeError("SPC requires an initialized RFDETREMACallback, but no EMA Teacher was found.")
+
+    def _compute_spc_losses(
+        self,
+        student_outputs: dict[str, Any],
+        teacher_outputs: dict[str, Any],
+    ) -> dict[str, torch.Tensor]:
+        """Compute SCC and Hungarian-matched query prediction losses.
+
+        Args:
+            student_outputs: Strong-view Student outputs including SPC tensors.
+            teacher_outputs: Weak-view EMA Teacher outputs including SPC tensors.
+
+        Returns:
+            Dictionary containing feature, class, and box consistency losses.
+        """
+        if self.spc_consistency is None:
+            raise RuntimeError("SPC loss requested while SPC is disabled.")
+        available_levels = len(student_outputs["spc_features"])
+        levels = []
+        for level in self.train_config.spc_feature_levels:
+            resolved_level = level if level >= 0 else available_levels + level
+            if not 0 <= resolved_level < available_levels:
+                raise ValueError(
+                    f"SPC feature level {level} is invalid for a {available_levels}-level feature pyramid."
+                )
+            levels.append(resolved_level)
+
+        feature_loss = self.spc_consistency.semantic_feature_loss(
+            [student_outputs["spc_features"][level] for level in levels],
+            [teacher_outputs["spc_features"][level] for level in levels],
+            [student_outputs["spc_feature_masks"][level] for level in levels],
+        )
+        num_queries = self.model_config.num_queries
+        query_losses = self.spc_consistency.query_prediction_loss(
+            student_outputs["pred_logits"][:, :num_queries],
+            student_outputs["pred_boxes"][:, :num_queries],
+            student_outputs["spc_query_features"][:, :num_queries],
+            teacher_outputs["pred_logits"][:, :num_queries],
+            teacher_outputs["pred_boxes"][:, :num_queries],
+            teacher_outputs["spc_query_features"][:, :num_queries],
+        )
+        return {"loss_spc_feature": feature_loss, **query_losses}
 
     def _compute_train_losses(
         self,

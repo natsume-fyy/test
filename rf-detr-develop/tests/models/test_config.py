@@ -282,6 +282,13 @@ class TestTrainConfigT42PromotedFields:
         """compute_test_loss defaults to True."""
         assert self._tc(tmp_path).compute_test_loss is True
 
+    def test_spc_defaults(self, tmp_path):
+        """SPC defaults should be conservative and target the two highest pyramid levels."""
+        config = self._tc(tmp_path)
+        assert config.spc_feature_levels == [-2, -1]
+        assert config.spc_confidence_threshold == pytest.approx(0.3)
+        assert config.spc_max_queries == 100
+
     # --- promoted fields: accept explicit values ---
 
     @pytest.mark.parametrize(
@@ -306,6 +313,12 @@ class TestTrainConfigT42PromotedFields:
             pytest.param("prefetch_factor", 4, id="prefetch_factor"),
             pytest.param("pin_memory", False, id="pin_memory"),
             pytest.param("persistent_workers", False, id="persistent_workers"),
+            pytest.param("spc_feature_loss_coef", 0.5, id="spc_feature_loss_coef"),
+            pytest.param("spc_query_class_loss_coef", 0.75, id="spc_query_class_loss_coef"),
+            pytest.param("spc_query_bbox_loss_coef", 1.5, id="spc_query_bbox_loss_coef"),
+            pytest.param("spc_confidence_threshold", 0.6, id="spc_confidence_threshold"),
+            pytest.param("spc_max_queries", 50, id="spc_max_queries"),
+            pytest.param("spc_strong_augmentation_strength", 0.9, id="spc_strong_augmentation_strength"),
         ],
     )
     def test_promoted_field_accepts_explicit_value(self, tmp_path, field, value):

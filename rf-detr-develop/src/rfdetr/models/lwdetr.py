@@ -444,7 +444,7 @@ class LWDETR(nn.Module):
             class_boost = class_boost[..., :detection_num_classes]
         return class_boost
 
-    def forward(self, samples: NestedTensor, targets=None):
+    def forward(self, samples: NestedTensor, targets=None, *, return_spc_outputs: bool = False):
         """The forward expects a NestedTensor, which consists of:
 
            - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
@@ -597,6 +597,11 @@ class LWDETR(nn.Module):
                     out["pred_masks"] = masks_enc
                 if keypoints_enc is not None:
                     out["pred_keypoints"] = keypoints_enc
+
+        if return_spc_outputs:
+            out["spc_features"] = [feature.tensors for feature in features]
+            out["spc_feature_masks"] = masks
+            out["spc_query_features"] = hs[-1] if hs is not None else hs_enc
 
         return out
 
