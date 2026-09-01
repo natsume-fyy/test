@@ -24,10 +24,12 @@ def test_small_config_accepts_fog_frequency_options() -> None:
         pretrain_weights=None,
         use_fog_frequency_regulator=True,
         fog_frequency_probability=0.8,
+        fog_frequency_residual_mix=0.25,
     )
 
     assert config.use_fog_frequency_regulator is True
     assert config.fog_frequency_probability == 0.8
+    assert config.fog_frequency_residual_mix == 0.25
 
 
 def test_dense_fog_narrows_protected_mid_band_and_increases_strength() -> None:
@@ -60,6 +62,24 @@ def test_training_progress_ramps_strength_without_moving_image_driven_boundaries
     assert torch.equal(early["tau2"], late["tau2"])
     assert late["low_strength"].item() > early["low_strength"].item()
     assert late["high_strength"].item() > early["high_strength"].item()
+
+
+def test_residual_mix_keeps_frequency_view_close_to_original() -> None:
+    """Residual mixing should retain the original image instead of replacing it."""
+    image = torch.full((1, 3, 64, 64), 0.82)
+    full_regulator = FogAwareFrequencyRegulator(probability=1.0, residual_mix=1.0)
+    safe_regulator = FogAwareFrequencyRegulator(probability=1.0, residual_mix=0.25)
+    full_regulator.set_training_progress(1.0)
+    safe_regulator.set_training_progress(1.0)
+
+    torch.manual_seed(7)
+    fully_regulated = full_regulator(image)
+    torch.manual_seed(7)
+    safely_regulated = safe_regulator(image)
+
+    expected = image + 0.25 * (fully_regulated - image)
+    assert torch.allclose(safely_regulated, expected, atol=1e-6)
+    assert (safely_regulated - image).abs().mean() < (fully_regulated - image).abs().mean()
 
 
 def test_regulator_only_changes_valid_training_pixels() -> None:

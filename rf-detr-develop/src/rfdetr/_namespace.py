@@ -37,6 +37,7 @@ _MC_NAMESPACE_FIELDS = {
     "fog_frequency_max_high_strength",
     "fog_frequency_warmup_fraction",
     "fog_frequency_transition_width",
+    "fog_frequency_residual_mix",
     "gradient_checkpointing",
     "group_detr",
     "hidden_dim",

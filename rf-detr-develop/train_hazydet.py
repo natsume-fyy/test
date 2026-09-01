@@ -9,7 +9,7 @@ from rfdetr import RFDETRSmall
 
 
 DATASET_DIR = "/root/autodl-tmp/HazyDet_RFDETR"
-OUTPUT_DIR = "/root/autodl-tmp/test/rf-detr-develop/output/hazydet_small_fog_frequency"
+OUTPUT_DIR = "/root/autodl-tmp/test/rf-detr-develop/output/hazydet_small_fog_frequency_residual"
 
 
 def main() -> None:
@@ -22,6 +22,7 @@ def main() -> None:
         fog_frequency_max_low_strength=0.35,
         fog_frequency_max_high_strength=0.28,
         fog_frequency_warmup_fraction=0.1,
+        fog_frequency_residual_mix=0.25,
     )
     model.train(
         dataset_dir=DATASET_DIR,

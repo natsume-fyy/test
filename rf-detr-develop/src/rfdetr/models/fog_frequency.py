@@ -36,6 +36,7 @@ class FogAwareFrequencyRegulator(nn.Module):
         max_high_strength: Maximum high-frequency perturbation strength.
         warmup_fraction: Fraction of training used to ramp perturbations in.
         transition_width: Width of the soft frequency-band boundaries.
+        residual_mix: Fraction of the regulated residual mixed into the original.
         normalized_input: Whether inputs use ImageNet normalization.
         image_mean: Channel means used to undo input normalization.
         image_std: Channel standard deviations used to undo normalization.
@@ -50,6 +51,7 @@ class FogAwareFrequencyRegulator(nn.Module):
         max_high_strength: float = 0.28,
         warmup_fraction: float = 0.1,
         transition_width: float = 0.02,
+        residual_mix: float = 0.25,
         normalized_input: bool = False,
         image_mean: Sequence[float] = (0.485, 0.456, 0.406),
         image_std: Sequence[float] = (0.229, 0.224, 0.225),
@@ -62,6 +64,7 @@ class FogAwareFrequencyRegulator(nn.Module):
         self.max_high_strength = max_high_strength
         self.warmup_fraction = warmup_fraction
         self.transition_width = transition_width
+        self.residual_mix = residual_mix
         self.normalized_input = normalized_input
         self.register_buffer("image_mean", torch.tensor(image_mean).view(1, -1, 1, 1), persistent=False)
         self.register_buffer("image_std", torch.tensor(image_std).view(1, -1, 1, 1), persistent=False)
@@ -202,7 +205,8 @@ class FogAwareFrequencyRegulator(nn.Module):
         working = working.clamp(0.0, 1.0)
         spectral_input, _ = self._fill_padding(working, padding_mask)
         with torch.no_grad():
-            parameters = {key: value.detach() for key, value in self.estimate_parameters(working, padding_mask).items()}
+            estimated = self.estimate_parameters(working, padding_mask)
+            parameters = {key: value.detach() for key, value in estimated.items()}
 
         radius = self._radial_grid(working.shape[-2], working.shape[-1], working.device)[None, None]
         tau1 = parameters["tau1"][:, None, None, None]
@@ -227,10 +231,16 @@ class FogAwareFrequencyRegulator(nn.Module):
             torch.fft.ifftshift(regulated_spectrum, dim=(-2, -1)),
             norm="ortho",
         ).real.clamp(0.0, 1.0)
+        # Identity-preserving residual mixing prevents the frequency view from
+        # replacing the real HazyDet image and shifting the pretrained
+        # backbone's input distribution. The adaptive band strengths still
+        # determine the residual direction and relative low/high response.
+        regulated = working + self.residual_mix * (regulated - working)
         if padding_mask is not None:
             regulated = torch.where((~padding_mask).unsqueeze(1), regulated, working)
         if self.normalized_input:
             regulated = (regulated - self.image_mean) / self.image_std
 
         self.last_statistics = {key: value.mean().detach() for key, value in parameters.items()}
+        self.last_statistics["residual_mix"] = working.new_tensor(self.residual_mix)
         return regulated.to(original_dtype)

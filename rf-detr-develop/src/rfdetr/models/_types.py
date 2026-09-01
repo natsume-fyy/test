@@ -77,6 +77,7 @@ class BuilderArgs(Protocol):
     fog_frequency_max_high_strength: float
     fog_frequency_warmup_fraction: float
     fog_frequency_transition_width: float
+    fog_frequency_residual_mix: float
     # --- Legacy / hardcoded defaults (present on Namespace, absent on raw configs) ---
     vit_encoder_num_layers: int
     window_block_indexes: Optional[List[int]]

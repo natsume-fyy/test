@@ -153,6 +153,7 @@ class ModelConfig(BaseConfig):
     fog_frequency_max_high_strength: float = Field(default=0.28, ge=0.0, le=1.0)
     fog_frequency_warmup_fraction: float = Field(default=0.1, ge=0.0, lt=1.0)
     fog_frequency_transition_width: float = Field(default=0.02, gt=0.0, le=0.1)
+    fog_frequency_residual_mix: float = Field(default=0.25, ge=0.0, le=1.0)
     license: str = "Apache-2.0"
     model_name: Optional[str] = Field(
         default=None,

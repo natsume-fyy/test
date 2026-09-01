@@ -849,6 +849,7 @@ def build_model(args: "BuilderArgs"):
                 max_high_strength=args.fog_frequency_max_high_strength,
                 warmup_fraction=args.fog_frequency_warmup_fraction,
                 transition_width=args.fog_frequency_transition_width,
+                residual_mix=args.fog_frequency_residual_mix,
                 normalized_input=True,
             )
             if getattr(args, "use_fog_frequency_regulator", False)
