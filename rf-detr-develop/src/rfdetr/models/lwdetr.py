@@ -135,8 +135,6 @@ class LWDETR(nn.Module):
         hbs_enabled: bool = False,
         hbs_reduction: int = 4,
         hbs_kernel_sizes: list[int] | None = None,
-        hbs_foreground_scale: float = 0.1,
-        hbs_attention_kernel_size: int = 7,
     ):
         """Initializes the model.
 
@@ -152,8 +150,6 @@ class LWDETR(nn.Module):
             hbs_enabled: Enable the training-only HBS auxiliary feature branch.
             hbs_reduction: Bottleneck reduction factor for HBS denoisers.
             hbs_kernel_sizes: Per-feature-level HBS denoising kernel sizes.
-            hbs_foreground_scale: Maximum high-frequency restoration fraction.
-            hbs_attention_kernel_size: Spatial foreground-attention kernel size.
         """
         super().__init__()
         self.num_queries = num_queries
@@ -175,8 +171,6 @@ class LWDETR(nn.Module):
                 channels=hidden_dim,
                 kernel_sizes=hbs_kernel_sizes or [3],
                 reduction=hbs_reduction,
-                foreground_scale=hbs_foreground_scale,
-                attention_kernel_size=hbs_attention_kernel_size,
             )
             if hbs_enabled
             else None
@@ -898,8 +892,6 @@ def build_model(args: "BuilderArgs"):
         grouppose_keypoint_dim_downscale=getattr(args, "grouppose_keypoint_dim_downscale", 1),
         hbs_enabled=getattr(args, "hbs_enabled", False),
         hbs_reduction=getattr(args, "hbs_reduction", 4),
-        hbs_foreground_scale=getattr(args, "hbs_foreground_scale", 0.1),
-        hbs_attention_kernel_size=getattr(args, "hbs_attention_kernel_size", 7),
         hbs_kernel_sizes=[
             (int(math.log2({"P3": 8, "P4": 16, "P5": 32, "P6": 64}[level])) // 2 * 2) + 1
             for level in args.projector_scale

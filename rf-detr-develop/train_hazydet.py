@@ -17,7 +17,7 @@ from rfdetr import RFDETRSmall  # noqa: E402
 
 
 DATASET_DIR = "/root/autodl-tmp/HazyDet_RFDETR"
-OUTPUT_DIR = "/root/autodl-tmp/rf-detr/output/hazydet_small_hbs"
+OUTPUT_DIR = "/root/autodl-tmp/rf-detr/output/hazydet_small_hbs_official"
 
 
 def main() -> None:
@@ -26,8 +26,6 @@ def main() -> None:
     model = RFDETRSmall(
         hbs_enabled=True,
         hbs_reduction=4,
-        hbs_foreground_scale=0.1,
-        hbs_attention_kernel_size=7,
         device="cuda",
     )
 
@@ -42,7 +40,8 @@ def main() -> None:
         use_ema=True,
         checkpoint_interval=5,
         early_stopping=False,
-        hbs_loss_coef=0.5,
+        # SET uses lambda=1.0; 0.5 made the HBS branch too weak to shape the backbone.
+        hbs_loss_coef=1.0,
     )
 
 

@@ -3,13 +3,11 @@
 # Copyright (c) 2025 Roboflow. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 [see LICENSE for details]
 # ------------------------------------------------------------------------
-"""SET-style HBS with foreground high-frequency compensation.
+"""Official SET-style hierarchical background smoothing (HBS).
 
-The original SET HBS branch smooths background features while copying foreground
-features unchanged. This variant first obtains a fully smoothed feature ``S``,
-extracts the removed residual ``F - S``, and restores a learned fraction of that
-residual inside ground-truth foreground regions. It is used only by RF-DETR's
-training-time auxiliary branch and therefore adds no inference latency.
+HBS masks ground-truth foreground before denoising the background and then
+copies the original foreground features back exactly. It is used only by
+RF-DETR's training-time auxiliary branch and adds no inference latency.
 """
 
 from __future__ import annotations
@@ -59,56 +57,18 @@ class BackgroundSmoothingBlock(nn.Module):
         return features + self.conv_block(features)
 
 
-class SpatialForegroundAttention(nn.Module):
-    """Predict a lightweight spatial gate from the removed high-frequency residual.
-
-    Channel-average and channel-maximum residual magnitudes are fused by one
-    convolution, following the inexpensive spatial-attention pattern used by CBAM.
-
-    Args:
-        kernel_size: Positive odd spatial kernel size.
-    """
-
-    def __init__(self, kernel_size: int = 7) -> None:
-        super().__init__()
-        if kernel_size <= 0 or kernel_size % 2 == 0:
-            raise ValueError(f"kernel_size must be a positive odd integer, got {kernel_size}.")
-        self.spatial = nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2, bias=True)
-        nn.init.kaiming_normal_(self.spatial.weight, mode="fan_in", nonlinearity="relu")
-        nn.init.constant_(self.spatial.bias, -2.0)
-
-    def forward(self, high_frequency: torch.Tensor) -> torch.Tensor:
-        """Return a foreground probability map.
-
-        Args:
-            high_frequency: Removed residual ``F - HBS(F)`` shaped ``(B, C, H, W)``.
-
-        Returns:
-            Bounded spatial gate shaped ``(B, 1, H, W)``.
-        """
-        magnitude = high_frequency.abs()
-        descriptor = torch.cat(
-            [magnitude.mean(dim=1, keepdim=True), magnitude.amax(dim=1, keepdim=True)],
-            dim=1,
-        )
-        return self.spatial(descriptor).sigmoid()
-
-
 class HBS(nn.Module):
-    """Combine background smoothing and foreground high-frequency compensation.
+    """Smooth background while preserving ground-truth foreground exactly.
 
-    For each feature level, the output is
-    ``S + M_fg * A(F - S) * alpha * (F - S)``, where ``S`` is the SET HBS
-    smoothed feature, ``M_fg`` is the rasterized ground-truth foreground mask,
-    ``A`` is lightweight spatial attention, and ``alpha`` bounds the maximum
-    restoration fraction. Padded locations bypass the module unchanged.
+    For each level, HBS computes
+    ``D(F * M_bg) * M_bg + F * M_fg``. Masking before the denoiser prevents
+    foreground activations from bleeding into nearby background through the
+    convolution. Padded locations bypass the module unchanged.
 
     Args:
         channels: Channel count shared by projected feature levels.
         kernel_sizes: One SET denoising kernel size per feature level.
         reduction: Denoiser bottleneck reduction factor.
-        foreground_scale: Maximum fraction of the residual restored in foreground.
-        attention_kernel_size: Kernel size of the spatial attention convolution.
     """
 
     def __init__(
@@ -116,23 +76,15 @@ class HBS(nn.Module):
         channels: int,
         kernel_sizes: list[int],
         reduction: int = 4,
-        foreground_scale: float = 0.1,
-        attention_kernel_size: int = 7,
     ) -> None:
         super().__init__()
         if not kernel_sizes:
             raise ValueError("kernel_sizes must contain at least one feature level.")
-        if not 0 <= foreground_scale <= 1:
-            raise ValueError(f"foreground_scale must be in [0, 1], got {foreground_scale}.")
-        self.foreground_scale = float(foreground_scale)
         self.denoisers = nn.ModuleList(
             [
                 BackgroundSmoothingBlock(channels=channels, reduction=reduction, kernel_size=kernel_size)
                 for kernel_size in kernel_sizes
             ]
-        )
-        self.foreground_attentions = nn.ModuleList(
-            [SpatialForegroundAttention(kernel_size=attention_kernel_size) for _ in kernel_sizes]
         )
 
     @staticmethod
@@ -211,10 +163,9 @@ class HBS(nn.Module):
             raise ValueError(f"Expected {len(features)} padding masks, received {len(padding_masks)}.")
 
         outputs: list[torch.Tensor] = []
-        for feature, denoiser, attention, padding_mask in zip(
+        for feature, denoiser, padding_mask in zip(
             features,
             self.denoisers,
-            self.foreground_attentions,
             padding_masks,
         ):
             batch_size, _, height, width = feature.shape
@@ -247,10 +198,8 @@ class HBS(nn.Module):
                 dim=0,
             )
             foreground_mask = foreground_mask * valid_mask
-            valid_features = feature * valid_mask
-            smoothed = denoiser(valid_features) * valid_mask
-            high_frequency = (feature - smoothed) * valid_mask
-            restoration_gate = attention(high_frequency) * foreground_mask
-            compensated = smoothed + self.foreground_scale * restoration_gate * high_frequency
-            outputs.append(compensated + feature * (1 - valid_mask))
+            background_mask = valid_mask - foreground_mask
+            smoothed_background = denoiser(feature * background_mask) * background_mask
+            preserved_foreground = feature * foreground_mask
+            outputs.append(smoothed_background + preserved_foreground + feature * (1 - valid_mask))
         return outputs

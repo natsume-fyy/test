@@ -147,8 +147,6 @@ class ModelConfig(BaseConfig):
     freeze_encoder: bool = False
     hbs_enabled: bool = False
     hbs_reduction: int = Field(default=4, ge=1)
-    hbs_foreground_scale: float = Field(default=0.1, ge=0.0, le=1.0)
-    hbs_attention_kernel_size: int = Field(default=7, ge=1)
     license: str = "Apache-2.0"
     model_name: Optional[str] = Field(
         default=None,
@@ -185,8 +183,6 @@ class ModelConfig(BaseConfig):
         """Validate the detection-only HBS auxiliary architecture."""
         if self.hbs_enabled and (self.segmentation_head or self.use_grouppose_keypoints):
             raise ValueError("HBS currently supports detection models only.")
-        if self.hbs_attention_kernel_size % 2 == 0:
-            raise ValueError("hbs_attention_kernel_size must be odd.")
         return self
 
     @model_validator(mode="after")

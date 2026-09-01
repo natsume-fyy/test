@@ -3,7 +3,7 @@
 # Copyright (c) 2025 Roboflow. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 [see LICENSE for details]
 # ------------------------------------------------------------------------
-"""Tests for HBS background smoothing with foreground high-frequency compensation."""
+"""Tests for SET HBS background-only smoothing."""
 
 from unittest.mock import MagicMock
 
@@ -13,17 +13,17 @@ from torch import nn
 
 from rfdetr._namespace import _namespace_from_configs
 from rfdetr.config import RFDETRMediumConfig, RFDETRSegMediumConfig, TrainConfig
-from rfdetr.models.hbs import HBS, BackgroundSmoothingBlock, SpatialForegroundAttention
+from rfdetr.models.hbs import HBS, BackgroundSmoothingBlock
 from rfdetr.models.lwdetr import LWDETR
 from rfdetr.utilities.tensors import NestedTensor
 
 
-class _ZeroSmoother(nn.Module):
-    """Return a deterministic fully smoothed tensor for branch-composition tests."""
+class _ConstantSmoother(nn.Module):
+    """Return a deterministic tensor for branch-composition tests."""
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        """Return zeros with the input shape."""
-        return torch.zeros_like(features)
+        """Return a constant while retaining a zero-valued input gradient path."""
+        return features * 0 + 3
 
 
 def test_background_smoothing_block_preserves_shape_and_gradients() -> None:
@@ -38,53 +38,54 @@ def test_background_smoothing_block_preserves_shape_and_gradients() -> None:
     assert all(parameter.grad is not None for parameter in block.parameters())
 
 
-def test_spatial_attention_is_lightweight_and_bounded() -> None:
-    """The foreground predictor must emit one bounded spatial gate per feature map."""
-    attention = SpatialForegroundAttention(kernel_size=3)
-    residual = torch.randn(2, 8, 5, 7)
-
-    gate = attention(residual)
-
-    assert gate.shape == (2, 1, 5, 7)
-    assert torch.all((gate >= 0) & (gate <= 1))
-    assert sum(parameter.numel() for parameter in attention.parameters()) == 19
-
-
-def test_hbs_reinjects_residual_only_inside_foreground() -> None:
-    """Background stays smoothed while attention restores part of F-HBS(F) in a box."""
-    hbs = HBS(
-        channels=1,
-        kernel_sizes=[3],
-        reduction=1,
-        foreground_scale=0.4,
-        attention_kernel_size=3,
-    )
-    hbs.denoisers[0] = _ZeroSmoother()
-    with torch.no_grad():
-        hbs.foreground_attentions[0].spatial.weight.zero_()
-        hbs.foreground_attentions[0].spatial.bias.zero_()
+def test_hbs_smooths_only_background_and_copies_foreground_exactly() -> None:
+    """The official SET composition must never alter features inside GT boxes."""
+    hbs = HBS(channels=1, kernel_sizes=[3], reduction=1)
+    hbs.denoisers[0] = _ConstantSmoother()
 
     features = [torch.ones(1, 1, 6, 6)]
-    targets = [{"boxes": torch.tensor([[0.5, 0.5, 1 / 3, 1 / 3]])}]
+    targets = [{"boxes": torch.tensor([[0.5, 0.5, 0.3, 0.3]])}]
     output = hbs(features, targets)[0]
 
-    # sigmoid(0) == 0.5, hence 0 + 0.4 * 0.5 * (1 - 0) == 0.2 in the 2x2 foreground box.
-    torch.testing.assert_close(output[:, :, 2:4, 2:4], torch.full((1, 1, 2, 2), 0.2))
-    assert torch.count_nonzero(output[:, :, :2, :]) == 0
-    assert torch.count_nonzero(output[:, :, 4:, :]) == 0
+    torch.testing.assert_close(output[:, :, 2:4, 2:4], features[0][:, :, 2:4, 2:4])
+    torch.testing.assert_close(output[:, :, :2, :], torch.full((1, 1, 2, 6), 3.0))
+    torch.testing.assert_close(output[:, :, 4:, :], torch.full((1, 1, 2, 6), 3.0))
+
+
+def test_hbs_masks_foreground_before_denoising() -> None:
+    """Foreground activations must not leak into background through HBS convolutions."""
+    hbs = HBS(channels=1, kernel_sizes=[3], reduction=1)
+    recorded_input: list[torch.Tensor] = []
+
+    class _Recorder(nn.Module):
+        """Record the denoiser input and pass it through."""
+
+        def forward(self, features: torch.Tensor) -> torch.Tensor:
+            """Store a detached input snapshot."""
+            recorded_input.append(features.detach().clone())
+            return features
+
+    hbs.denoisers[0] = _Recorder()
+    features = [torch.ones(1, 1, 6, 6)]
+    targets = [{"boxes": torch.tensor([[0.5, 0.5, 0.3, 0.3]])}]
+
+    hbs(features, targets)
+
+    assert torch.count_nonzero(recorded_input[0][:, :, 2:4, 2:4]) == 0
+    assert torch.all(recorded_input[0][:, :, :2, :] == 1)
 
 
 def test_hbs_preserves_padding() -> None:
-    """Padded feature positions must bypass both smoothing and compensation."""
+    """Padded feature positions must bypass background smoothing."""
     hbs = HBS(channels=1, kernel_sizes=[3], reduction=1)
-    hbs.denoisers[0] = _ZeroSmoother()
+    hbs.denoisers[0] = _ConstantSmoother()
     features = [torch.ones(1, 1, 6, 6)]
     padding_mask = torch.zeros(1, 6, 6, dtype=torch.bool)
     padding_mask[:, 4:, :] = True
 
     output = hbs(features, [{"boxes": torch.empty(0, 4)}], [padding_mask])[0]
 
-    assert torch.count_nonzero(output[:, :, :4, :]) == 0
+    torch.testing.assert_close(output[:, :, :4, :], torch.full((1, 1, 4, 6), 3.0))
     torch.testing.assert_close(output[:, :, 4:, :], features[0][:, :, 4:, :])
 
 
@@ -94,26 +95,18 @@ def test_hbs_config_is_opt_in_and_detection_only() -> None:
     hbs_config = RFDETRMediumConfig(
         hbs_enabled=True,
         hbs_reduction=8,
-        hbs_foreground_scale=0.25,
-        hbs_attention_kernel_size=5,
     )
 
     assert default_config.hbs_enabled is False
     namespace = _namespace_from_configs(hbs_config, TrainConfig(dataset_dir="."))
     assert namespace.hbs_enabled is True
     assert namespace.hbs_reduction == 8
-    assert namespace.hbs_foreground_scale == 0.25
-    assert namespace.hbs_attention_kernel_size == 5
     with pytest.raises(ValueError, match="HBS currently supports detection models only"):
         RFDETRSegMediumConfig(hbs_enabled=True)
 
 
-def test_hbs_config_validates_attention_and_loss_ranges() -> None:
-    """Invalid spatial kernels, restoration fractions, and loss weights must fail early."""
-    with pytest.raises(ValueError, match="hbs_attention_kernel_size must be odd"):
-        RFDETRMediumConfig(hbs_attention_kernel_size=4)
-    with pytest.raises(ValueError):
-        RFDETRMediumConfig(hbs_foreground_scale=1.1)
+def test_hbs_config_validates_loss_range() -> None:
+    """Invalid auxiliary loss weights must fail early."""
     with pytest.raises(ValueError):
         TrainConfig(dataset_dir=".", hbs_loss_coef=-0.1)
 
@@ -153,8 +146,6 @@ def test_lwdetr_emits_hbs_outputs_only_during_training() -> None:
         hbs_enabled=True,
         hbs_reduction=2,
         hbs_kernel_sizes=[3],
-        hbs_foreground_scale=0.2,
-        hbs_attention_kernel_size=5,
     )
     targets = [{"boxes": torch.tensor([[0.5, 0.5, 0.5, 0.5]])}]
 

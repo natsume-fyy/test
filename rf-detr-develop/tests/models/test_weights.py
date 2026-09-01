@@ -1010,7 +1010,6 @@ class TestPartialLoadDetector:
                         "transformer.enc_out_class_embed.0.weight",
                         "transformer.enc_out_bbox_embed.0.layers.0.weight",
                         "hbs.denoisers.0.conv_block.0.weight",
-                        "hbs.foreground_attentions.0.spatial.weight",
                     ],
                     unexpected_keys=[],
                 ),
