@@ -21,6 +21,7 @@ from rfdetr.config import (
 from rfdetr.training import build_trainer
 from rfdetr.training.callbacks.best_model import BestModelCallback, RFDETREarlyStopping
 from rfdetr.training.callbacks.coco_eval import COCOEvalCallback
+from rfdetr.training.callbacks.conv_layer_loss import ConvLayerLossCallback
 from rfdetr.training.callbacks.drop_schedule import DropPathCallback
 from rfdetr.training.callbacks.ema import RFDETREMACallback
 
@@ -94,6 +95,17 @@ class TestBuildTrainerCallbacks:
         trainer = build_trainer(_tc(tmp_path, use_ema=False, early_stopping=False), _mc())
         types = [type(cb) for cb in trainer.callbacks]
         assert COCOEvalCallback in types
+
+    def test_conv_layer_loss_plotting_enabled_by_default(self, tmp_path):
+        """Every standard training run writes convolution-layer loss plots."""
+        trainer = build_trainer(_tc(tmp_path, use_ema=False), _mc())
+        callback = next(cb for cb in trainer.callbacks if isinstance(cb, ConvLayerLossCallback))
+        assert callback.loss_dir == tmp_path / "out" / "loss"
+
+    def test_conv_layer_loss_plotting_can_be_disabled(self, tmp_path):
+        """Users can opt out of gradient instrumentation when profiling throughput."""
+        trainer = build_trainer(_tc(tmp_path, use_ema=False, plot_conv_layer_loss=False), _mc())
+        assert not any(isinstance(cb, ConvLayerLossCallback) for cb in trainer.callbacks)
 
     def test_coco_eval_uses_eval_interval_and_per_class_flags(self, tmp_path):
         """COCOEvalCallback receives eval_interval and log_per_class_metrics from TrainConfig."""

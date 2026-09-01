@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover - exercised in unit tests via monkeypatc
 from rfdetr.config import KeypointTrainConfig, ModelConfig, TrainConfig
 from rfdetr.training.callbacks import (
     BestModelCallback,
+    ConvLayerLossCallback,
     DropPathCallback,
     RFDETREarlyStopping,
     RFDETREMACallback,
@@ -271,6 +272,9 @@ def build_trainer(
 
     # --- Build callbacks ---
     callbacks = []
+
+    if tc.plot_conv_layer_loss:
+        callbacks.append(ConvLayerLossCallback(output_dir=tc.output_dir))
 
     if tc.progress_bar == "rich":
         callbacks.append(
