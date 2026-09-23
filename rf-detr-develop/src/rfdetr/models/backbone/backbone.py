@@ -40,6 +40,7 @@ class Backbone(BackboneBase):
         out_channels=256,
         out_feature_indexes: list = None,
         projector_scale: list = None,
+        frm_levels: list[str] | None = None,
         use_cls_token: bool = False,
         freeze_encoder: bool = False,
         layer_norm: bool = False,
@@ -92,6 +93,7 @@ class Backbone(BackboneBase):
                 param.requires_grad = False
 
         self.projector_scale = projector_scale
+        self.frm_levels = frm_levels or []
         assert len(self.projector_scale) > 0
         # x[0]
         assert sorted(self.projector_scale) == self.projector_scale, (
@@ -106,6 +108,7 @@ class Backbone(BackboneBase):
             scale_factors=scale_factors,
             layer_norm=layer_norm,
             rms_norm=rms_norm,
+            frm_enabled=[level in self.frm_levels for level in self.projector_scale],
         )
         self.cross_attn_projector = (
             MultiScaleProjector(
@@ -114,6 +117,7 @@ class Backbone(BackboneBase):
                 scale_factors=scale_factors,
                 layer_norm=layer_norm,
                 rms_norm=rms_norm,
+                frm_enabled=[level in self.frm_levels for level in self.projector_scale],
             )
             if dual_projector
             else None

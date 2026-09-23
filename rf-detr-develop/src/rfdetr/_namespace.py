@@ -29,6 +29,7 @@ _MC_NAMESPACE_FIELDS = {
     "device",
     "encoder",
     "freeze_encoder",
+    "frm_levels",
     "gradient_checkpointing",
     "group_detr",
     "hidden_dim",

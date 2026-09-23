@@ -18,6 +18,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 
+from rfdetr.models.backbone.frm import FrequencyRefinementModule
+
 
 class LayerNorm(nn.Module):
     """A LayerNorm variant, popularized by Transformers, that performs point-wise mean and variance normalization over
@@ -175,6 +177,7 @@ class MultiScaleProjector(nn.Module):
         rms_norm: bool = False,
         survival_prob: float = 1.0,
         force_drop_last_n_features: int = 0,
+        frm_enabled: Optional[Sequence[bool]] = None,
     ) -> None:
         """
         Args:
@@ -182,12 +185,18 @@ class MultiScaleProjector(nn.Module):
             out_channels: Number of channels in the output feature maps.
             scale_factors: List of scaling factors to upsample or downsample
                 the input features for creating pyramid features.
+            frm_enabled: Per-level flags selecting projector outputs that are
+                refined by a Frequency Refinement Module.
         """
         super(MultiScaleProjector, self).__init__()
 
         self.scale_factors = scale_factors
         self.survival_prob = survival_prob
         self.force_drop_last_n_features = force_drop_last_n_features
+        if frm_enabled is None:
+            frm_enabled = [False] * len(scale_factors)
+        if len(frm_enabled) != len(scale_factors):
+            raise ValueError("frm_enabled must have one value for each scale factor.")
 
         stages_sampling = []
         stages = []
@@ -254,6 +263,14 @@ class MultiScaleProjector(nn.Module):
 
         self.stages_sampling = nn.ModuleList(stages_sampling)
         self.stages = nn.ModuleList(stages)
+        self.frequency_refinement = nn.ModuleList(
+            [
+                FrequencyRefinementModule(out_channels, layer_norm=layer_norm)
+                if enabled
+                else nn.Identity()
+                for enabled in frm_enabled
+            ]
+        )
 
     def forward(self, x):
         """
@@ -289,7 +306,9 @@ class MultiScaleProjector(nn.Module):
                 feat_fuse = torch.cat(feat_fuse, dim=1)
             else:
                 feat_fuse = feat_fuse[0]
-            results.append(stage(feat_fuse))
+            projected_feature = stage(feat_fuse)
+            projected_feature = self.frequency_refinement[i](projected_feature)
+            results.append(projected_feature)
         if self.use_extra_pool:
             results.append(F.max_pool2d(results[-1], kernel_size=1, stride=2, padding=0))
         return results

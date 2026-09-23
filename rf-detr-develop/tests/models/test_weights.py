@@ -1009,6 +1009,7 @@ class TestPartialLoadDetector:
                         "query_feat.weight",
                         "transformer.enc_out_class_embed.0.weight",
                         "transformer.enc_out_bbox_embed.0.layers.0.weight",
+                        "backbone.0.projector.frequency_refinement.0.output_projection.0.weight",
                     ],
                     unexpected_keys=[],
                 ),

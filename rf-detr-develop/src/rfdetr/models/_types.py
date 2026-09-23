@@ -46,6 +46,7 @@ class BuilderArgs(Protocol):
     num_keypoints_per_class: List[int]
     num_decoder_registers: int
     projector_scale: List[str]
+    frm_levels: List[str]
     hidden_dim: int
     patch_size: int
     num_windows: int

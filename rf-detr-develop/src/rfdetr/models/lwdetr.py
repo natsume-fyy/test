@@ -773,6 +773,7 @@ def build_model(args: "BuilderArgs"):
         out_channels=args.hidden_dim,
         out_feature_indexes=args.out_feature_indexes,
         projector_scale=args.projector_scale,
+        frm_levels=getattr(args, "frm_levels", []),
         use_cls_token=args.use_cls_token,
         hidden_dim=args.hidden_dim,
         position_embedding=args.position_embedding,

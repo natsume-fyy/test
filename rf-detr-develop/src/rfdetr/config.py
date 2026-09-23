@@ -104,6 +104,7 @@ class ModelConfig(BaseConfig):
     dec_layers: int
     two_stage: bool = True
     projector_scale: List[Literal["P3", "P4", "P5"]]
+    frm_levels: List[Literal["P3", "P4", "P5"]] = Field(default_factory=list)
     hidden_dim: int
     patch_size: int
     num_windows: int
@@ -155,6 +156,17 @@ class ModelConfig(BaseConfig):
             "without inspecting ``pretrain_weights``."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_frm_levels(self) -> "ModelConfig":
+        """Ensure FRM is enabled only for projector levels produced by the model."""
+        if len(self.frm_levels) != len(set(self.frm_levels)):
+            raise ValueError("frm_levels must not contain duplicate feature levels.")
+        missing_levels = set(self.frm_levels) - set(self.projector_scale)
+        if missing_levels:
+            missing = ", ".join(sorted(missing_levels))
+            raise ValueError(f"frm_levels contains levels not present in projector_scale: {missing}.")
+        return self
 
     @model_validator(mode="after")
     def _warn_deprecated_model_config_fields(self) -> "ModelConfig":

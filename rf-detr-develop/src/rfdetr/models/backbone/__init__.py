@@ -82,6 +82,7 @@ def build_backbone(
     num_windows,
     positional_encoding_size,
     dual_projector: bool = False,
+    frm_levels: list[str] | None = None,
 ):
     """
     Useful args:
@@ -101,6 +102,7 @@ def build_backbone(
         out_channels=out_channels,
         out_feature_indexes=out_feature_indexes,
         projector_scale=projector_scale,
+        frm_levels=frm_levels,
         use_cls_token=use_cls_token,
         layer_norm=layer_norm,
         freeze_encoder=freeze_encoder,
