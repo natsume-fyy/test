@@ -3,7 +3,7 @@
 # Copyright (c) 2025 Roboflow. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 [see LICENSE for details]
 # ------------------------------------------------------------------------
-"""Fine-tune RF-DETR Small with frequency refinement on HazyDet."""
+"""Fine-tune RF-DETR Small with parallel frequency refinement on HazyDet."""
 
 from rfdetr import RFDETRSmall
 
@@ -15,7 +15,7 @@ OUTPUT_DIR = "/root/autodl-tmp/rf-detr/output/hazydet_small_frm"
 
 
 def main() -> None:
-    """Train RF-DETR Small with FRM on its default P4 projector output."""
+    """Train RF-DETR Small with parallel FRM on its default P4 projector output."""
     model = RFDETRSmall(frm_levels=["P4"])
 
     model.train(

@@ -178,3 +178,22 @@ class FrequencyRefinementModule(nn.Module):
         channel_weights = self.channel_attention(low_response)
         return self.output_projection(inputs * (spatial_weights + channel_weights))
 
+
+class ParallelFrequencyRefinement(nn.Module):
+    """Add an FRM branch to the original feature through learnable residual scaling.
+
+    A small initial scale keeps the pretrained projector path nearly unchanged
+    at the start of fine-tuning, while allowing optimization to increase or
+    suppress the frequency-refinement contribution.
+    """
+
+    def __init__(self, channels: int, layer_norm: bool = True, initial_scale: float = 1e-3) -> None:
+        super().__init__()
+        self.refinement = FrequencyRefinementModule(channels, layer_norm=layer_norm)
+        self.gamma = nn.Parameter(torch.tensor(initial_scale, dtype=torch.float32))
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        """Fuse the identity and frequency-refinement branches."""
+        refined = self.refinement(inputs)
+        gamma = self.gamma.to(dtype=refined.dtype)
+        return inputs + gamma * refined

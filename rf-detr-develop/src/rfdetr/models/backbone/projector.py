@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 
-from rfdetr.models.backbone.frm import FrequencyRefinementModule
+from rfdetr.models.backbone.frm import ParallelFrequencyRefinement
 
 
 class LayerNorm(nn.Module):
@@ -265,7 +265,7 @@ class MultiScaleProjector(nn.Module):
         self.stages = nn.ModuleList(stages)
         self.frequency_refinement = nn.ModuleList(
             [
-                FrequencyRefinementModule(out_channels, layer_norm=layer_norm)
+                ParallelFrequencyRefinement(out_channels, layer_norm=layer_norm)
                 if enabled
                 else nn.Identity()
                 for enabled in frm_enabled

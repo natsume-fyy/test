@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from torch import nn
 
 from rfdetr.config import RFDETRSmallConfig
-from rfdetr.models.backbone.frm import FrequencyRefinementModule
+from rfdetr.models.backbone.frm import FrequencyRefinementModule, ParallelFrequencyRefinement
 from rfdetr.models.backbone.projector import MultiScaleProjector
 
 
@@ -44,7 +44,10 @@ def test_multiscale_projector_refines_selected_output_level() -> None:
 
     assert len(outputs) == 1
     assert outputs[0].shape == (2, 8, 8, 8)
-    assert isinstance(projector.frequency_refinement[0], FrequencyRefinementModule)
+    parallel_frm = projector.frequency_refinement[0]
+    assert isinstance(parallel_frm, ParallelFrequencyRefinement)
+    assert isinstance(parallel_frm.refinement, FrequencyRefinementModule)
+    assert parallel_frm.gamma.item() == pytest.approx(1e-3)
 
 
 def test_multiscale_projector_leaves_unselected_level_unchanged() -> None:
@@ -59,6 +62,18 @@ def test_multiscale_projector_leaves_unselected_level_unchanged() -> None:
     )
 
     assert isinstance(projector.frequency_refinement[0], nn.Identity)
+
+
+def test_parallel_frm_zero_scale_preserves_original_feature() -> None:
+    """A zero branch scale should make parallel FRM an exact identity."""
+    module = ParallelFrequencyRefinement(channels=8, layer_norm=True, initial_scale=0.0)
+    module.eval()
+    feature = torch.randn(2, 8, 7, 9)
+
+    with torch.no_grad():
+        output = module(feature)
+
+    assert torch.equal(output, feature)
 
 
 def test_model_config_rejects_frm_level_without_projector_output() -> None:
