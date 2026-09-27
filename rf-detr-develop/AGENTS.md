@@ -209,6 +209,7 @@ uv run twine check --strict dist/*
 
 - RFDETR wrappers: `self.model` is the model context returned by `get_model()`
 - Underlying PyTorch module: `self.model.model`
+- Projected P3/P4 backbone features pass through independent residual CBAM blocks before positional encoding
 - Segmentation models return `pred_masks` as `torch.Tensor` or dict with keys `['spatial_features', 'query_features', 'bias']`
 
 **Imports:**

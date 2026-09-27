@@ -159,6 +159,105 @@ class C2f(nn.Module):
         return self.cv2(torch.cat(y, 1))
 
 
+class ChannelAttention(nn.Module):
+    """CBAM channel attention using shared projections of average- and max-pooled features."""
+
+    def __init__(self, channels: int, reduction: int = 16) -> None:
+        """Initialize channel attention.
+
+        Args:
+            channels: Number of input feature channels.
+            reduction: Reduction ratio used by the shared channel MLP.
+        """
+        super().__init__()
+        hidden_channels = max(channels // reduction, 1)
+        self.shared_mlp = nn.Sequential(
+            nn.Conv2d(channels, hidden_channels, kernel_size=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hidden_channels, channels, kernel_size=1, bias=False),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Return channel-wise attention weights for an input feature map."""
+        average_attention = self.shared_mlp(F.adaptive_avg_pool2d(x, output_size=1))
+        maximum_attention = self.shared_mlp(F.adaptive_max_pool2d(x, output_size=1))
+        return torch.sigmoid(average_attention + maximum_attention)
+
+
+class SpatialAttention(nn.Module):
+    """CBAM spatial attention computed from channel-wise average and maximum maps."""
+
+    def __init__(self, kernel_size: int = 7) -> None:
+        """Initialize spatial attention.
+
+        Args:
+            kernel_size: Convolution kernel size. CBAM conventionally uses 7.
+        """
+        super().__init__()
+        if kernel_size not in (3, 7):
+            raise ValueError("SpatialAttention kernel_size must be 3 or 7.")
+        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=kernel_size // 2, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Return spatial attention weights for an input feature map."""
+        average_map = torch.mean(x, dim=1, keepdim=True)
+        maximum_map = torch.amax(x, dim=1, keepdim=True)
+        return torch.sigmoid(self.conv(torch.cat((average_map, maximum_map), dim=1)))
+
+
+class ResidualCBAM(nn.Module):
+    """Sequential channel-spatial CBAM with an identity residual connection."""
+
+    def __init__(self, channels: int, reduction: int = 16, spatial_kernel_size: int = 7) -> None:
+        """Initialize a residual CBAM block.
+
+        Args:
+            channels: Number of input and output feature channels.
+            reduction: Reduction ratio used by channel attention.
+            spatial_kernel_size: Kernel size used by spatial attention.
+        """
+        super().__init__()
+        self.channel_attention = ChannelAttention(channels, reduction)
+        self.spatial_attention = SpatialAttention(spatial_kernel_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Refine the feature and add it back to the unchanged input."""
+        attended = x * self.channel_attention(x)
+        attended = attended * self.spatial_attention(attended)
+        return x + attended
+
+
+class PyramidCBAM(nn.Module):
+    """Apply independent residual CBAM blocks to selected feature-pyramid levels."""
+
+    def __init__(
+        self,
+        levels: Sequence[str],
+        channels: int,
+        target_levels: Sequence[str] = ("P3", "P4"),
+    ) -> None:
+        """Initialize CBAM blocks for the requested projector levels.
+
+        Args:
+            levels: Ordered pyramid levels emitted by the projector.
+            channels: Number of channels shared by projected features.
+            target_levels: Pyramid levels to refine with residual CBAM.
+        """
+        super().__init__()
+        self.levels = tuple(levels)
+        targets = set(target_levels)
+        self.blocks = nn.ModuleDict({level: ResidualCBAM(channels) for level in self.levels if level in targets})
+
+    def forward(self, features: Sequence[torch.Tensor]) -> list[torch.Tensor]:
+        """Refine configured levels while preserving feature order and untouched tensors."""
+        if len(features) != len(self.levels):
+            raise ValueError(f"Expected {len(self.levels)} pyramid features, but received {len(features)}.")
+        return [
+            self.blocks[level](feature) if level in self.blocks else feature
+            for level, feature in zip(self.levels, features)
+        ]
+
+
 class MultiScaleProjector(nn.Module):
     """This module implements MultiScaleProjector in :paper:`lwdetr`.
 
